@@ -1,6 +1,7 @@
-use crate::context::Context;
-use crate::{CONTEXT, GRAPH, Relationship};
-use petgraph::graph::NodeIndex;
+use crate::Relationship;
+use crate::executor::Executor;
+use crate::reactor::Reactor;
+use petgraph::prelude::NodeIndex;
 use std::cell::{Ref, RefCell, RefMut};
 use std::rc::Rc;
 
@@ -99,15 +100,15 @@ impl<T: 'static> NodeBuilder<T> {
         self
     }
 
-    pub fn depends_on<P>(mut self, parent: &Node<P>, relationship: Relationship) -> Self {
+    pub fn add_relationship<P>(mut self, parent: &Node<P>, relationship: Relationship) -> Self {
         self.parents
             .push((parent.index(), parent.depth(), relationship));
         self
     }
 
-    pub fn build<F>(self, mut cycle_fn: F) -> Node<T>
+    pub fn build<F>(self, executor: &mut Executor, mut cycle_fn: F) -> Node<T>
     where
-        F: FnMut(&mut T, &Context) -> bool + 'static,
+        F: FnMut(&mut T, &mut Reactor) -> bool + 'static,
     {
         let node = Node::uninitialized(self.data, self.name);
         let depth = self
@@ -120,21 +121,18 @@ impl<T: 'static> NodeBuilder<T> {
 
         {
             let cloned = node.clone();
-            let cycle_fn = Box::new(move || {
-                CONTEXT.with(|ctx| {
-                    let state: &mut T = &mut *cloned.borrow_mut();
-                    let ctx = &*ctx.borrow();
-                    cycle_fn(state, ctx)
-                })
+            let cycle_fn = Box::new(move |reactor: &mut Reactor| {
+                let state: &mut T = &mut *cloned.borrow_mut();
+                cycle_fn(state, reactor)
             });
 
-            let idx = GRAPH.with(|graph| graph.borrow_mut().add_node(cycle_fn));
+            let idx = executor.add_node(cycle_fn);
             let mut inner = node.0.borrow_mut();
             inner.index = idx;
             inner.depth = depth;
 
             self.parents.iter().for_each(|(parent, _, relationship)| {
-                GRAPH.with(|graph| graph.borrow_mut().add_edge(*parent, idx, *relationship));
+                executor.add_edge(*parent, idx, *relationship);
             });
         }
 
