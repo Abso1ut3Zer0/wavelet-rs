@@ -2,15 +2,15 @@ use crate::Relationship;
 use crate::executor::Executor;
 use crate::reactor::Reactor;
 use petgraph::prelude::NodeIndex;
-use std::cell::{Ref, RefCell, RefMut};
-use std::rc::Rc;
+use std::cell::UnsafeCell;
+use std::rc::{Rc, Weak};
 
-pub struct Node<T: 'static>(Rc<RefCell<NodeInner<T>>>);
+pub struct Node<T: 'static>(Rc<UnsafeCell<NodeInner<T>>>);
 
 impl<T: 'static> Node<T> {
     pub(crate) fn uninitialized(data: T, name: Option<String>) -> Self {
         Self {
-            0: Rc::new(RefCell::new(NodeInner {
+            0: Rc::new(UnsafeCell::new(NodeInner {
                 data,
                 name,
                 epoch: NodeEpoch {
@@ -24,38 +24,52 @@ impl<T: 'static> Node<T> {
     }
 
     #[inline(always)]
-    pub fn borrow(&self) -> Ref<'_, T> {
-        Ref::map(self.0.borrow(), |inner| &inner.data)
+    pub fn borrow(&self) -> &T {
+        &self.get().data
     }
 
     #[inline(always)]
-    pub(crate) fn borrow_mut(&self) -> RefMut<'_, T> {
-        RefMut::map(self.0.borrow_mut(), |inner| &mut inner.data)
+    pub(crate) fn borrow_mut(&self) -> &mut T {
+        &mut self.get_mut().data
     }
 
     #[inline(always)]
-    pub(crate) fn borrow_name(&self) -> Ref<'_, Option<String>> {
-        Ref::map(self.0.borrow(), |inner| &inner.name)
+    fn get(&self) -> &NodeInner<T> {
+        unsafe { self.0.get().as_ref().unwrap_unchecked() }
+    }
+
+    #[inline(always)]
+    fn get_mut(&self) -> &mut NodeInner<T> {
+        unsafe { self.0.get().as_mut().unwrap_unchecked() }
+    }
+
+    fn weak(&self) -> WeakNode<T> {
+        WeakNode(Rc::downgrade(&self.0))
+    }
+
+    #[inline(always)]
+    pub(crate) fn name(&self) -> Option<&str> {
+        self.get().name.as_deref()
     }
 
     #[inline(always)]
     pub(crate) fn index(&self) -> NodeIndex {
-        self.0.borrow().index
+        self.get().index
     }
 
     #[inline(always)]
     pub(crate) fn depth(&self) -> u32 {
-        self.0.borrow().depth
+        self.get().depth
     }
 
     #[inline(always)]
     pub(crate) fn is_scheduled(&self, current_epoch: usize) -> bool {
-        self.0.borrow().epoch.sched_epoch == current_epoch
+        self.get().epoch.sched_epoch == current_epoch
     }
 
     #[inline(always)]
     pub(crate) fn has_mutated(&self, current_epoch: usize) -> bool {
-        self.0.borrow().epoch.mut_epoch == current_epoch
+        self.get().epoch.mut_epoch == current_epoch
     }
 }
 
@@ -78,6 +92,15 @@ struct NodeInner<T: 'static> {
     epoch: NodeEpoch,
     index: NodeIndex,
     depth: u32,
+}
+
+struct WeakNode<T: 'static>(Weak<UnsafeCell<NodeInner<T>>>);
+
+impl<T: 'static> WeakNode<T> {
+    #[inline(always)]
+    pub fn upgrade(&self) -> Option<Node<T>> {
+        self.0.upgrade().map(|rc| Node(rc))
+    }
 }
 
 pub struct NodeBuilder<T: 'static> {
@@ -120,14 +143,18 @@ impl<T: 'static> NodeBuilder<T> {
             .unwrap_or(0);
 
         {
-            let cloned = node.clone();
-            let cycle_fn = Box::new(move |reactor: &mut Reactor| {
-                let state: &mut T = &mut *cloned.borrow_mut();
-                cycle_fn(state, reactor)
+            let idx = node.index();
+            let weak = node.weak();
+            let cycle_fn = Box::new(move |reactor: &mut Reactor| match weak.upgrade() {
+                None => {
+                    reactor.register_garbage(idx);
+                    false
+                }
+                Some(state) => cycle_fn(state.borrow_mut(), reactor),
             });
 
             let idx = executor.add_node(cycle_fn);
-            let mut inner = node.0.borrow_mut();
+            let mut inner = node.get_mut();
             inner.index = idx;
             inner.depth = depth;
 

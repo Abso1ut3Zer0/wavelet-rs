@@ -50,4 +50,9 @@ impl Reactor {
     pub(crate) fn garbage_collect(&mut self, f: impl FnMut(NodeIndex)) {
         self.garbage.drain(..).for_each(f)
     }
+
+    #[inline(always)]
+    pub(crate) fn register_garbage(&mut self, node: NodeIndex) {
+        self.garbage.push(node);
+    }
 }
