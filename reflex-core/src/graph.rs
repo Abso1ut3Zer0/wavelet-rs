@@ -1,6 +1,5 @@
 use crate::Relationship;
 use crate::event_driver::EventDriver;
-use crate::scheduler::Scheduler;
 use petgraph::prelude::NodeIndex;
 
 pub type CycleFn = Box<dyn FnMut(&mut EventDriver) -> bool + 'static>;
