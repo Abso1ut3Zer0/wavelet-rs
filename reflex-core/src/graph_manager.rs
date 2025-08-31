@@ -5,7 +5,6 @@ use petgraph::prelude::NodeIndex;
 
 pub type CycleFn = Box<dyn FnMut(&mut Reactor) -> bool + 'static>;
 
-// TODO - need to ensure we have the generational ids on this...
 pub(crate) struct Context {
     pub(crate) cycle_fn: CycleFn,
     pub(crate) sched_epoch: usize,

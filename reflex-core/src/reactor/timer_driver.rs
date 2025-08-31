@@ -9,12 +9,12 @@ pub struct TimerSource {
     id: usize,
 }
 
-pub struct TimerWheel {
+pub struct TimerDriver {
     timers: BTreeMap<TimerSource, NodeIndex>,
     sequence: usize,
 }
 
-impl TimerWheel {
+impl TimerDriver {
     pub fn new() -> Self {
         Self {
             timers: BTreeMap::new(),

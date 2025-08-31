@@ -1,8 +1,8 @@
 mod io_driver;
-mod timer_wheel;
+mod timer_driver;
 
 use crate::node::Node;
-use crate::reactor::timer_wheel::TimerWheel;
+use crate::reactor::timer_driver::TimerDriver;
 use petgraph::prelude::NodeIndex;
 use slab::Slab;
 use std::io;
@@ -11,7 +11,7 @@ use std::time::Duration;
 const INITIAL_EVENT_CAPACITY: usize = 1024;
 
 pub struct Reactor {
-    timer_wheel: TimerWheel,
+    timer_wheel: TimerDriver,
     poller: mio::Poll,
     events: mio::Events,
     slab: Slab<NodeIndex>,
@@ -30,7 +30,7 @@ impl Reactor {
             poller: mio::Poll::new().expect("failed to create mio poll"),
             events: mio::Events::with_capacity(capacity),
             slab: Slab::with_capacity(capacity),
-            timer_wheel: TimerWheel::new(),
+            timer_wheel: TimerDriver::new(),
             garbage: Vec::new(),
             current_epoch: 0,
             trigger_time: 0,
