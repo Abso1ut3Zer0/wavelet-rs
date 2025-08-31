@@ -67,7 +67,7 @@ mod queue {
     const INITIAL_CAPACITY: usize = 256;
 
     pub(crate) struct DepthQueue<T> {
-        pub(super) multi_queue: Vec<VecDeque<T>>,
+        pub multi_queue: Vec<VecDeque<T>>,
         curr_depth: usize,
     }
 

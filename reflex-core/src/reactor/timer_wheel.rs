@@ -1,11 +1,13 @@
+use crate::scheduler::Scheduler;
 use petgraph::prelude::NodeIndex;
 use std::collections::BTreeMap;
+use std::time::Instant;
 
 pub struct TimerHandle(TimerRegistration);
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) struct TimerRegistration {
-    pub when: i128,
+    pub when: Instant,
     pub id: usize,
 }
 
@@ -23,7 +25,7 @@ impl TimerWheel {
     }
 
     #[inline(always)]
-    pub fn register_timer(&mut self, idx: NodeIndex, when: i128) -> TimerRegistration {
+    pub fn register_timer(&mut self, idx: NodeIndex, when: Instant) -> TimerRegistration {
         let registration = TimerRegistration {
             when,
             id: self.sequence,
@@ -39,5 +41,14 @@ impl TimerWheel {
     }
 
     #[inline(always)]
-    pub fn poll(&mut self, ) {}
+    pub fn poll(&mut self, scheduler: &mut Scheduler, now: Instant, epoch: usize) {
+        while let Some(entry) = self.timers.first_entry() {
+            if entry.key().when <= now {
+                let (_, node_idx) = entry.remove_entry();
+                scheduler.schedule_node(node_idx, epoch);
+                continue;
+            }
+            return;
+        }
+    }
 }
