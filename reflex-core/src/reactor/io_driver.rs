@@ -2,7 +2,7 @@ use petgraph::prelude::NodeIndex;
 use slab::Slab;
 use std::io;
 
-use crate::scheduler::Scheduler;
+use crate::graph_manager::GraphManager;
 pub use mio::Interest;
 
 pub struct IoHandle<S: mio::event::Source> {
@@ -113,7 +113,7 @@ impl IoDriver {
     #[inline(always)]
     pub fn poll(
         &mut self,
-        scheduler: &mut Scheduler,
+        scheduler: &mut GraphManager,
         timeout: Option<std::time::Duration>,
         epoch: usize,
     ) -> io::Result<()> {

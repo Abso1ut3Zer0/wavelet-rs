@@ -1,4 +1,4 @@
-use crate::scheduler::Scheduler;
+use crate::graph_manager::GraphManager;
 use petgraph::prelude::NodeIndex;
 use std::collections::BTreeMap;
 use std::time::Instant;
@@ -41,7 +41,7 @@ impl TimerWheel {
     }
 
     #[inline(always)]
-    pub fn poll(&mut self, scheduler: &mut Scheduler, now: Instant, epoch: usize) {
+    pub fn poll(&mut self, scheduler: &mut GraphManager, now: Instant, epoch: usize) {
         while let Some(entry) = self.timers.first_entry() {
             if entry.key().when <= now {
                 let (_, node_idx) = entry.remove_entry();
