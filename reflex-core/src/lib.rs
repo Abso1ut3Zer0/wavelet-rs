@@ -4,6 +4,8 @@ mod node;
 mod reactor;
 mod scheduler;
 
+pub use petgraph::prelude::NodeIndex;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, EnumAsInner)]
 pub enum Relationship {
     Trigger,

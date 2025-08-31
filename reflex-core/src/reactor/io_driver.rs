@@ -2,7 +2,27 @@ use petgraph::prelude::NodeIndex;
 use slab::Slab;
 use std::io;
 
-pub struct IoHandle(mio::Token);
+use crate::scheduler::Scheduler;
+pub use mio::Interest;
+
+pub struct IoHandle<S: mio::event::Source> {
+    source: S,
+    token: mio::Token,
+}
+
+impl<S: mio::event::Source> IoHandle<S> {
+    const fn new(source: S, token: mio::Token) -> Self {
+        IoHandle { source, token }
+    }
+
+    pub const fn source(&self) -> &S {
+        &self.source
+    }
+
+    pub const fn source_mut(&mut self) -> &mut S {
+        &mut self.source
+    }
+}
 
 pub struct Notifier {
     waker: mio::Waker,
@@ -50,7 +70,59 @@ impl IoDriver {
     }
 
     #[inline(always)]
-    pub fn deregister_notifier(&mut self, mut notifier: Notifier) {
+    pub fn deregister_notifier(&mut self, notifier: Notifier) {
         self.indices.remove(notifier.token.0);
+    }
+
+    #[inline(always)]
+    pub fn register_source<S: mio::event::Source>(
+        &mut self,
+        mut source: S,
+        idx: NodeIndex,
+        interest: Interest,
+    ) -> io::Result<IoHandle<S>> {
+        let entry = self.indices.vacant_entry();
+        let token = mio::Token(entry.key());
+        self.poller
+            .registry()
+            .register(&mut source, token, interest)?;
+        entry.insert(idx);
+        Ok(IoHandle::new(source, token))
+    }
+
+    #[inline(always)]
+    pub fn deregister_source<S: mio::event::Source>(
+        &mut self,
+        mut handle: IoHandle<S>,
+    ) -> io::Result<NodeIndex> {
+        self.poller.registry().deregister(&mut handle.source)?;
+        Ok(self.indices.remove(handle.token.0))
+    }
+
+    #[inline(always)]
+    pub fn reregister_source<S: mio::event::Source>(
+        &mut self,
+        handle: &mut IoHandle<S>,
+        interest: Interest,
+    ) -> io::Result<()> {
+        self.poller
+            .registry()
+            .reregister(&mut handle.source, handle.token, interest)
+    }
+
+    #[inline(always)]
+    pub fn poll(
+        &mut self,
+        scheduler: &mut Scheduler,
+        timeout: Option<std::time::Duration>,
+        epoch: usize,
+    ) -> io::Result<()> {
+        self.events.clear();
+        self.poller.poll(&mut self.events, timeout)?;
+        self.events.iter().for_each(|event| {
+            let node_index = self.indices[event.token().0];
+            scheduler.schedule_node(node_index, epoch);
+        });
+        Ok(())
     }
 }
