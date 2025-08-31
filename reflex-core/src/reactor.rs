@@ -10,11 +10,10 @@ use std::time::Duration;
 
 const INITIAL_EVENT_CAPACITY: usize = 1024;
 
-// TODO - does this guy need the scheduler queue?
 pub struct Reactor {
+    timer_wheel: TimerWheel,
     poller: mio::Poll,
     events: mio::Events,
-    timer_wheel: TimerWheel,
     slab: Slab<NodeIndex>,
     garbage: Vec<NodeIndex>,
     current_epoch: usize,

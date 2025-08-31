@@ -117,6 +117,7 @@ impl<T: 'static> NodeBuilder<T> {
         self
     }
 
+    // TODO - need to pass in executor, not reactor
     pub fn build<F>(self, executor: &mut Scheduler, mut cycle_fn: F) -> Node<T>
     where
         F: FnMut(&mut T, &mut Reactor) -> bool + 'static,
@@ -133,6 +134,7 @@ impl<T: 'static> NodeBuilder<T> {
         {
             let idx = node.index();
             let weak = node.weak();
+            // TODO - need to pass in the executor, not the reactor
             let cycle_fn = Box::new(move |reactor: &mut Reactor| match weak.upgrade() {
                 None => {
                     reactor.register_garbage(idx);

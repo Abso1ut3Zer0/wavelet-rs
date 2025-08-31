@@ -89,7 +89,7 @@ mod queue {
         pub(crate) fn reserve(&mut self, max_depth: u32) {
             let len = self.multi_queue.len();
             self.multi_queue
-                .reserve(len.wrapping_sub(max_depth as usize));
+                .reserve((max_depth as usize).saturating_sub(len));
         }
 
         #[inline(always)]
