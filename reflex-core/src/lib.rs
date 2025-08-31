@@ -1,7 +1,7 @@
 use enum_as_inner::EnumAsInner;
 
 mod node;
-mod reactor;
+mod event_driver;
 mod graph_manager;
 
 pub use petgraph::prelude::NodeIndex;

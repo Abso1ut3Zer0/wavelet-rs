@@ -105,9 +105,9 @@ impl IoDriver {
     }
 
     #[inline(always)]
-    pub fn poll(
+    pub(super) fn poll(
         &mut self,
-        scheduler: &mut GraphManager,
+        graph_manager: &mut GraphManager,
         timeout: Option<std::time::Duration>,
         epoch: usize,
     ) -> io::Result<()> {
@@ -115,7 +115,7 @@ impl IoDriver {
         self.poller.poll(&mut self.events, timeout)?;
         self.events.iter().for_each(|event| {
             let node_index = self.indices[event.token().0];
-            scheduler.schedule_node(node_index, epoch);
+            graph_manager.schedule_node(node_index, epoch);
         });
         Ok(())
     }

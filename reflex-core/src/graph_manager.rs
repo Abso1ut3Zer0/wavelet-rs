@@ -1,9 +1,9 @@
 use crate::Relationship;
 use crate::graph_manager::scheduler::Scheduler;
-use crate::reactor::Reactor;
+use crate::event_driver::EventDriver;
 use petgraph::prelude::NodeIndex;
 
-pub type CycleFn = Box<dyn FnMut(&mut Reactor) -> bool + 'static>;
+pub type CycleFn = Box<dyn FnMut(&mut EventDriver) -> bool + 'static>;
 
 pub(crate) struct Context {
     pub(crate) cycle_fn: CycleFn,

@@ -1,5 +1,5 @@
 use crate::Relationship;
-use crate::reactor::Reactor;
+use crate::event_driver::EventDriver;
 use crate::graph_manager::{Context, GraphManager};
 use petgraph::prelude::NodeIndex;
 use std::cell::UnsafeCell;
@@ -117,10 +117,10 @@ impl<T: 'static> NodeBuilder<T> {
         self
     }
 
-    // TODO - need to pass in executor, not reactor
+    // TODO - need to pass in executor, not event_driver
     pub fn build<F>(self, executor: &mut GraphManager, mut cycle_fn: F) -> Node<T>
     where
-        F: FnMut(&mut T, &mut Reactor) -> bool + 'static,
+        F: FnMut(&mut T, &mut EventDriver) -> bool + 'static,
     {
         let node = Node::uninitialized(self.data, self.name);
         let depth = self
@@ -134,10 +134,11 @@ impl<T: 'static> NodeBuilder<T> {
         {
             let idx = node.index();
             let weak = node.weak();
-            // TODO - need to pass in the executor, not the reactor
-            let cycle_fn = Box::new(move |reactor: &mut Reactor| match weak.upgrade() {
+            // TODO - need to pass in the executor, not the event_driver
+            let cycle_fn = Box::new(move |reactor: &mut EventDriver| match weak.upgrade() {
                 None => {
-                    reactor.register_garbage(idx);
+                    // TODO - handle garbage
+                    // reactor.register_garbage(idx);
                     false
                 }
                 Some(state) => cycle_fn(state.borrow_mut(), reactor),

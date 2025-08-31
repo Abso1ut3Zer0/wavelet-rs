@@ -39,11 +39,11 @@ impl TimerDriver {
     }
 
     #[inline(always)]
-    pub fn poll(&mut self, scheduler: &mut GraphManager, now: Instant, epoch: usize) {
+    pub fn poll(&mut self, graph_manager: &mut GraphManager, now: Instant, epoch: usize) {
         while let Some(entry) = self.timers.first_entry() {
             if entry.key().when <= now {
                 let (_, node_idx) = entry.remove_entry();
-                scheduler.schedule_node(node_idx, epoch);
+                graph_manager.schedule_node(node_idx, epoch);
                 continue;
             }
             return;
