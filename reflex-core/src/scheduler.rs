@@ -1,13 +1,14 @@
+use petgraph::prelude::NodeIndex;
 use std::collections::VecDeque;
 
 const INITIAL_CAPACITY: usize = 256;
 
-pub(crate) struct Scheduler<T> {
-    multi_queue: Vec<VecDeque<T>>,
+pub(crate) struct Scheduler {
+    multi_queue: Vec<VecDeque<NodeIndex>>,
     curr_depth: usize,
 }
 
-impl<T: Clone> Scheduler<T> {
+impl Scheduler {
     pub(crate) fn new() -> Self {
         Self {
             multi_queue: Vec::new(),
@@ -29,16 +30,21 @@ impl<T: Clone> Scheduler<T> {
     }
 
     #[inline(always)]
-    pub fn schedule(&mut self, item: T, depth: u32) {
+    pub fn schedule(&mut self, node_index: NodeIndex, depth: u32) {
+        // We assert here since scheduling above
+        // the current depth is undefined behavior
+        // that can cause certain execution paths
+        // no never run. This can lead to dropped
+        // messages in processing.
         assert!(
             (depth as usize) >= self.curr_depth,
             "cannot schedule at a depth above the current queue"
         );
-        self.multi_queue[depth as usize].push_back(item);
+        self.multi_queue[depth as usize].push_back(node_index);
     }
 
     #[inline(always)]
-    pub(crate) fn pop(&mut self) -> Option<T> {
+    pub(crate) fn pop(&mut self) -> Option<NodeIndex> {
         // we must exhaust - see tests for an example
         while self.curr_depth < self.multi_queue.len() {
             if let Some(item) = self.multi_queue[self.curr_depth].pop_front() {
@@ -62,69 +68,69 @@ mod tests {
         let mut scheduler = Scheduler::new();
         scheduler.resize(5);
 
-        scheduler.schedule('a', 0);
-        scheduler.schedule('b', 1);
-        scheduler.schedule('c', 4);
-        scheduler.schedule('d', 2);
-        scheduler.schedule('e', 3);
-        scheduler.schedule('f', 1);
-        scheduler.schedule('g', 2);
-        scheduler.schedule('h', 4);
+        scheduler.schedule(NodeIndex::from(0), 0);
+        scheduler.schedule(NodeIndex::from(1), 1);
+        scheduler.schedule(NodeIndex::from(2), 4);
+        scheduler.schedule(NodeIndex::from(3), 2);
+        scheduler.schedule(NodeIndex::from(4), 3);
+        scheduler.schedule(NodeIndex::from(5), 1);
+        scheduler.schedule(NodeIndex::from(6), 2);
+        scheduler.schedule(NodeIndex::from(7), 4);
 
         // rank 0
         let item = scheduler.pop();
         assert!(item.is_some());
         let item = item.unwrap();
-        assert_eq!(item, 'a');
+        assert_eq!(item, NodeIndex::from(0));
         assert_eq!(scheduler.curr_depth, 0);
 
         // rank 1
         let item = scheduler.pop();
         assert!(item.is_some());
         let item = item.unwrap();
-        assert_eq!(item, 'b');
+        assert_eq!(item, NodeIndex::from(1));
         assert_eq!(scheduler.curr_depth, 1);
 
         // rank 1
         let item = scheduler.pop();
         assert!(item.is_some());
         let item = item.unwrap();
-        assert_eq!(item, 'f');
+        assert_eq!(item, NodeIndex::from(5));
         assert_eq!(scheduler.curr_depth, 1);
 
         // rank 2
         let item = scheduler.pop();
         assert!(item.is_some());
         let item = item.unwrap();
-        assert_eq!(item, 'd');
+        assert_eq!(item, NodeIndex::from(3));
         assert_eq!(scheduler.curr_depth, 2);
 
         // rank 2
         let item = scheduler.pop();
         assert!(item.is_some());
         let item = item.unwrap();
-        assert_eq!(item, 'g');
+        assert_eq!(item, NodeIndex::from(6));
         assert_eq!(scheduler.curr_depth, 2);
 
         // rank 3
         let item = scheduler.pop();
         assert!(item.is_some());
         let item = item.unwrap();
-        assert_eq!(item, 'e');
+        assert_eq!(item, NodeIndex::from(4));
         assert_eq!(scheduler.curr_depth, 3);
 
         // rank 4
         let item = scheduler.pop();
         assert!(item.is_some());
         let item = item.unwrap();
-        assert_eq!(item, 'c');
+        assert_eq!(item, NodeIndex::from(2));
         assert_eq!(scheduler.curr_depth, 4);
 
         // rank 4
         let item = scheduler.pop();
         assert!(item.is_some());
         let item = item.unwrap();
-        assert_eq!(item, 'h');
+        assert_eq!(item, NodeIndex::from(7));
         assert_eq!(scheduler.curr_depth, 4);
 
         let item = scheduler.pop();
@@ -162,20 +168,20 @@ mod tests {
         let mut scheduler = Scheduler::new();
         scheduler.resize(3);
 
-        scheduler.schedule("Base Node", 0);
-        scheduler.schedule("Node B", 2);
+        scheduler.schedule(NodeIndex::from(0), 0);
+        scheduler.schedule(NodeIndex::from(2), 2);
         // Node A never scheduled (observe)
 
         let item = scheduler.pop();
         assert!(item.is_some());
         let item = item.unwrap();
-        assert_eq!(item, "Base Node");
+        assert_eq!(item, NodeIndex::from(0));
         assert_eq!(scheduler.curr_depth, 0);
 
         let item = scheduler.pop();
         assert!(item.is_some());
         let item = item.unwrap();
-        assert_eq!(item, "Node B");
+        assert_eq!(item, NodeIndex::from(2));
         assert_eq!(scheduler.curr_depth, 2);
 
         let item = scheduler.pop();

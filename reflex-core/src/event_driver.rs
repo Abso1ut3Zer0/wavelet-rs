@@ -3,7 +3,8 @@ mod timer_driver;
 
 pub use crate::event_driver::io_driver::IoDriver;
 pub use crate::event_driver::timer_driver::TimerDriver;
-use crate::graph_manager::GraphManager;
+use crate::graph::Graph;
+use crate::scheduler::Scheduler;
 use std::io;
 use std::time::{Duration, Instant};
 
@@ -37,12 +38,13 @@ impl EventDriver {
     #[inline(always)]
     pub fn poll(
         &mut self,
-        graph_manager: &mut GraphManager,
+        graph: &mut Graph,
+        scheduler: &mut Scheduler,
         timeout: Option<Duration>,
         now: Instant,
         epoch: usize,
     ) -> io::Result<()> {
-        self.timer_driver.poll(graph_manager, now, epoch);
-        self.io_driver.poll(graph_manager, timeout, epoch)
+        self.timer_driver.poll(graph, scheduler, now, epoch);
+        self.io_driver.poll(graph, scheduler, timeout, epoch)
     }
 }

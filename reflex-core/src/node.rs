@@ -1,6 +1,6 @@
 use crate::Relationship;
 use crate::event_driver::EventDriver;
-use crate::graph_manager::{Context, GraphManager};
+use crate::graph::{Context, Graph};
 use petgraph::prelude::NodeIndex;
 use std::cell::UnsafeCell;
 use std::rc::{Rc, Weak};
@@ -118,7 +118,7 @@ impl<T: 'static> NodeBuilder<T> {
     }
 
     // TODO - need to pass in executor, not event_driver
-    pub fn build<F>(self, executor: &mut GraphManager, mut cycle_fn: F) -> Node<T>
+    pub fn build<F>(self, executor: &mut Graph, mut cycle_fn: F) -> Node<T>
     where
         F: FnMut(&mut T, &mut EventDriver) -> bool + 'static,
     {

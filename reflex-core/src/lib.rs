@@ -2,7 +2,7 @@ use enum_as_inner::EnumAsInner;
 
 mod node;
 mod event_driver;
-mod graph_manager;
+mod graph;
 mod scheduler;
 
 pub use petgraph::prelude::NodeIndex;

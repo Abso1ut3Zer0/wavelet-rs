@@ -21,31 +21,30 @@ impl Context {
     }
 }
 
-pub struct GraphManager {
+pub struct Graph {
     graph: petgraph::Graph<Context, Relationship>,
-    scheduler: Scheduler<NodeIndex>,
 }
 
-impl GraphManager {
+impl Graph {
     pub fn new() -> Self {
         Self {
             graph: petgraph::Graph::new(),
-            scheduler: Scheduler::new(),
         }
     }
 
     #[inline(always)]
-    pub fn schedule_node(&mut self, node: NodeIndex, epoch: usize) {
-        let ctx = &mut self.graph[node];
-        if ctx.sched_epoch != epoch {
-            self.scheduler.schedule(node, ctx.depth);
-            ctx.sched_epoch = epoch;
+    pub fn can_schedule(&mut self, node_index: NodeIndex, epoch: usize) -> Option<u32> {
+        let ctx = &mut self.graph[node_index];
+        if ctx.sched_epoch == epoch {
+            return None;
         }
+
+        ctx.sched_epoch = epoch;
+        Some(ctx.depth)
     }
 
     #[inline(always)]
     pub(crate) fn add_node(&mut self, weight: Context) -> NodeIndex {
-        self.scheduler.reserve(weight.depth);
         self.graph.add_node(weight)
     }
 

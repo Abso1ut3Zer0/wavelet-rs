@@ -1,4 +1,5 @@
-use crate::graph_manager::GraphManager;
+use crate::graph::Graph;
+use crate::scheduler::Scheduler;
 use petgraph::prelude::NodeIndex;
 use std::collections::BTreeMap;
 use std::time::Instant;
@@ -39,11 +40,19 @@ impl TimerDriver {
     }
 
     #[inline(always)]
-    pub fn poll(&mut self, graph_manager: &mut GraphManager, now: Instant, epoch: usize) {
+    pub fn poll(
+        &mut self,
+        graph: &mut Graph,
+        scheduler: &mut Scheduler,
+        now: Instant,
+        epoch: usize,
+    ) {
         while let Some(entry) = self.timers.first_entry() {
             if entry.key().when <= now {
                 let (_, node_idx) = entry.remove_entry();
-                graph_manager.schedule_node(node_idx, epoch);
+                if let Some(depth) = graph.can_schedule(node_idx, epoch) {
+                    scheduler.schedule(node_idx, depth);
+                }
                 continue;
             }
             return;

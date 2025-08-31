@@ -2,7 +2,8 @@ use petgraph::prelude::NodeIndex;
 use slab::Slab;
 use std::io;
 
-use crate::graph_manager::GraphManager;
+use crate::graph::Graph;
+use crate::scheduler::Scheduler;
 pub use mio::Interest;
 
 pub struct IoSource<S: mio::event::Source> {
@@ -107,7 +108,8 @@ impl IoDriver {
     #[inline(always)]
     pub(super) fn poll(
         &mut self,
-        graph_manager: &mut GraphManager,
+        graph: &mut Graph,
+        scheduler: &mut Scheduler,
         timeout: Option<std::time::Duration>,
         epoch: usize,
     ) -> io::Result<()> {
@@ -115,7 +117,9 @@ impl IoDriver {
         self.poller.poll(&mut self.events, timeout)?;
         self.events.iter().for_each(|event| {
             let node_index = self.indices[event.token().0];
-            graph_manager.schedule_node(node_index, epoch);
+            if let Some(depth) = graph.can_schedule(node_index, epoch) {
+                scheduler.schedule(node_index, depth)
+            }
         });
         Ok(())
     }
