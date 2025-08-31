@@ -1,6 +1,6 @@
-use crate::event_driver::EventDriver;
+use crate::executor::ExecutionContext;
 use crate::graph::Relationship;
-use crate::graph::{Context, Graph};
+use crate::graph::{Graph, NodeContext};
 use petgraph::prelude::NodeIndex;
 use std::cell::UnsafeCell;
 use std::rc::Rc;
@@ -105,7 +105,7 @@ impl<T: 'static> NodeBuilder<T> {
     // TODO - need to pass in executor, not event_driver
     pub fn build<F>(self, executor: &mut Graph, mut cycle_fn: F) -> Node<T>
     where
-        F: FnMut(&mut T, &mut EventDriver) -> bool + 'static,
+        F: FnMut(&mut T, &mut ExecutionContext) -> bool + 'static,
     {
         let node = Node::uninitialized(self.data, self.name);
         let depth = self
@@ -119,9 +119,9 @@ impl<T: 'static> NodeBuilder<T> {
         {
             let state = node.clone();
             let cycle_fn =
-                Box::new(move |reactor: &mut EventDriver| cycle_fn(state.borrow_mut(), reactor));
+                Box::new(move |ctx: &mut ExecutionContext| cycle_fn(state.borrow_mut(), ctx));
 
-            let idx = executor.add_node(Context::new(cycle_fn, depth));
+            let idx = executor.add_node(NodeContext::new(cycle_fn, depth));
             let mut inner = node.get_mut();
             inner.index = idx;
             inner.depth = depth;
