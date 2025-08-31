@@ -1,22 +1,27 @@
-use crate::Relationship;
 use crate::event_driver::EventDriver;
+use enum_as_inner::EnumAsInner;
 use petgraph::prelude::NodeIndex;
 
-pub type CycleFn = Box<dyn FnMut(&mut EventDriver) -> bool + 'static>;
+pub type MutateFn = Box<dyn FnMut(&mut EventDriver) -> bool + 'static>;
 
 pub(crate) struct Context {
-    pub(crate) cycle_fn: CycleFn,
+    pub(crate) mutate_fn: MutateFn,
     pub(crate) sched_epoch: usize,
     pub(crate) depth: u32,
 }
 
 impl Context {
-    pub(crate) const fn new(cycle_fn: CycleFn, depth: u32) -> Self {
+    pub(crate) const fn new(mutate_fn: MutateFn, depth: u32) -> Self {
         Self {
-            cycle_fn,
+            mutate_fn,
             sched_epoch: 0,
             depth,
         }
+    }
+
+    #[inline(always)]
+    fn mutate(&mut self, driver: &mut EventDriver) -> bool {
+        (self.mutate_fn)(driver)
     }
 }
 
@@ -43,6 +48,12 @@ impl Graph {
     }
 
     #[inline(always)]
+    pub fn mutate(&mut self, driver: &mut EventDriver, node_index: NodeIndex) -> bool {
+        let ctx = &mut self.graph[node_index];
+        ctx.mutate(driver)
+    }
+
+    #[inline(always)]
     pub(crate) fn add_node(&mut self, weight: Context) -> NodeIndex {
         self.graph.add_node(weight)
     }
@@ -56,4 +67,10 @@ impl Graph {
     ) {
         self.graph.add_edge(parent, child, relationship);
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, EnumAsInner)]
+pub enum Relationship {
+    Trigger,
+    Observe,
 }

@@ -1,11 +1,9 @@
-use crate::Relationship;
 use crate::event_driver::EventDriver;
+use crate::graph::Relationship;
 use crate::graph::{Context, Graph};
 use petgraph::prelude::NodeIndex;
 use std::cell::UnsafeCell;
-use std::rc::{Rc, Weak};
-
-// pub struct Node
+use std::rc::Rc;
 
 pub struct Node<T: 'static>(Rc<UnsafeCell<NodeInner<T>>>);
 
@@ -42,10 +40,6 @@ impl<T: 'static> Node<T> {
         unsafe { self.0.get().as_mut().unwrap_unchecked() }
     }
 
-    fn weak(&self) -> WeakNode<T> {
-        WeakNode(Rc::downgrade(&self.0))
-    }
-
     #[inline(always)]
     pub(crate) fn name(&self) -> Option<&str> {
         self.get().name.as_deref()
@@ -62,8 +56,8 @@ impl<T: 'static> Node<T> {
     }
 
     #[inline(always)]
-    pub(crate) fn has_mutated(&self, epoch: usize) -> bool {
-        self.get().mut_epoch == epoch
+    pub(crate) fn mut_epoch(&self) -> usize {
+        self.get().mut_epoch
     }
 }
 
@@ -80,15 +74,6 @@ struct NodeInner<T: 'static> {
     index: NodeIndex,
     mut_epoch: usize,
     depth: u32,
-}
-
-struct WeakNode<T: 'static>(Weak<UnsafeCell<NodeInner<T>>>);
-
-impl<T: 'static> WeakNode<T> {
-    #[inline(always)]
-    pub fn upgrade(&self) -> Option<Node<T>> {
-        self.0.upgrade().map(|rc| Node(rc))
-    }
 }
 
 pub struct NodeBuilder<T: 'static> {
@@ -132,17 +117,9 @@ impl<T: 'static> NodeBuilder<T> {
             .unwrap_or(0);
 
         {
-            let idx = node.index();
-            let weak = node.weak();
-            // TODO - need to pass in the executor, not the event_driver
-            let cycle_fn = Box::new(move |reactor: &mut EventDriver| match weak.upgrade() {
-                None => {
-                    // TODO - handle garbage
-                    // reactor.register_garbage(idx);
-                    false
-                }
-                Some(state) => cycle_fn(state.borrow_mut(), reactor),
-            });
+            let state = node.clone();
+            let cycle_fn =
+                Box::new(move |reactor: &mut EventDriver| cycle_fn(state.borrow_mut(), reactor));
 
             let idx = executor.add_node(Context::new(cycle_fn, depth));
             let mut inner = node.get_mut();

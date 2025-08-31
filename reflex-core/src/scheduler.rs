@@ -3,7 +3,7 @@ use std::collections::VecDeque;
 
 const INITIAL_CAPACITY: usize = 256;
 
-pub(crate) struct Scheduler {
+pub struct Scheduler {
     multi_queue: Vec<VecDeque<NodeIndex>>,
     curr_depth: usize,
 }

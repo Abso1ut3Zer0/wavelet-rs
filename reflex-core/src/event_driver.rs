@@ -1,8 +1,8 @@
 mod io_driver;
 mod timer_driver;
 
-pub use crate::event_driver::io_driver::IoDriver;
-pub use crate::event_driver::timer_driver::TimerDriver;
+pub use crate::event_driver::io_driver::*;
+pub use crate::event_driver::timer_driver::*;
 use crate::graph::Graph;
 use crate::scheduler::Scheduler;
 use std::io;
