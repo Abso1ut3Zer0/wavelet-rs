@@ -5,14 +5,14 @@ use std::io;
 use crate::graph_manager::GraphManager;
 pub use mio::Interest;
 
-pub struct IoHandle<S: mio::event::Source> {
+pub struct IoSource<S: mio::event::Source> {
     source: S,
     token: mio::Token,
 }
 
-impl<S: mio::event::Source> IoHandle<S> {
+impl<S: mio::event::Source> IoSource<S> {
     const fn new(source: S, token: mio::Token) -> Self {
-        IoHandle { source, token }
+        IoSource { source, token }
     }
 
     pub const fn source(&self) -> &S {
@@ -37,12 +37,6 @@ impl Notifier {
     pub fn notify(&self) -> io::Result<()> {
         self.waker.wake()
     }
-}
-
-#[derive(Debug, Clone, Copy)]
-pub(super) struct IoRegistration {
-    node_index: NodeIndex,
-    interest: mio::Interest,
 }
 
 pub struct IoDriver {
@@ -80,20 +74,20 @@ impl IoDriver {
         mut source: S,
         idx: NodeIndex,
         interest: Interest,
-    ) -> io::Result<IoHandle<S>> {
+    ) -> io::Result<IoSource<S>> {
         let entry = self.indices.vacant_entry();
         let token = mio::Token(entry.key());
         self.poller
             .registry()
             .register(&mut source, token, interest)?;
         entry.insert(idx);
-        Ok(IoHandle::new(source, token))
+        Ok(IoSource::new(source, token))
     }
 
     #[inline(always)]
     pub fn deregister_source<S: mio::event::Source>(
         &mut self,
-        mut handle: IoHandle<S>,
+        mut handle: IoSource<S>,
     ) -> io::Result<NodeIndex> {
         self.poller.registry().deregister(&mut handle.source)?;
         Ok(self.indices.remove(handle.token.0))
@@ -102,7 +96,7 @@ impl IoDriver {
     #[inline(always)]
     pub fn reregister_source<S: mio::event::Source>(
         &mut self,
-        handle: &mut IoHandle<S>,
+        handle: &mut IoSource<S>,
         interest: Interest,
     ) -> io::Result<()> {
         self.poller

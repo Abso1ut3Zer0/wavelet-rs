@@ -3,16 +3,14 @@ use petgraph::prelude::NodeIndex;
 use std::collections::BTreeMap;
 use std::time::Instant;
 
-pub struct TimerHandle(TimerRegistration);
-
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub(super) struct TimerRegistration {
-    pub when: Instant,
-    pub id: usize,
+pub struct TimerSource {
+    when: Instant,
+    id: usize,
 }
 
 pub struct TimerWheel {
-    timers: BTreeMap<TimerRegistration, NodeIndex>,
+    timers: BTreeMap<TimerSource, NodeIndex>,
     sequence: usize,
 }
 
@@ -25,8 +23,8 @@ impl TimerWheel {
     }
 
     #[inline(always)]
-    pub fn register_timer(&mut self, idx: NodeIndex, when: Instant) -> TimerRegistration {
-        let registration = TimerRegistration {
+    pub fn register_timer(&mut self, idx: NodeIndex, when: Instant) -> TimerSource {
+        let registration = TimerSource {
             when,
             id: self.sequence,
         };
@@ -36,7 +34,7 @@ impl TimerWheel {
     }
 
     #[inline(always)]
-    pub fn deregister_timer(&mut self, registration: TimerRegistration) {
+    pub fn deregister_timer(&mut self, registration: TimerSource) {
         self.timers.remove(&registration);
     }
 
