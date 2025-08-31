@@ -1,9 +1,11 @@
 use crate::Relationship;
-use crate::executor::Executor;
 use crate::reactor::Reactor;
+use crate::scheduler::{Context, Scheduler};
 use petgraph::prelude::NodeIndex;
 use std::cell::UnsafeCell;
 use std::rc::{Rc, Weak};
+
+// pub struct Node
 
 pub struct Node<T: 'static>(Rc<UnsafeCell<NodeInner<T>>>);
 
@@ -13,11 +15,8 @@ impl<T: 'static> Node<T> {
             0: Rc::new(UnsafeCell::new(NodeInner {
                 data,
                 name,
-                epoch: NodeEpoch {
-                    mut_epoch: 0,
-                    sched_epoch: 0,
-                },
                 index: NodeIndex::new(0),
+                mut_epoch: 0,
                 depth: 0,
             })),
         }
@@ -63,13 +62,8 @@ impl<T: 'static> Node<T> {
     }
 
     #[inline(always)]
-    pub(crate) fn is_scheduled(&self, current_epoch: usize) -> bool {
-        self.get().epoch.sched_epoch == current_epoch
-    }
-
-    #[inline(always)]
-    pub(crate) fn has_mutated(&self, current_epoch: usize) -> bool {
-        self.get().epoch.mut_epoch == current_epoch
+    pub(crate) fn has_mutated(&self, epoch: usize) -> bool {
+        self.get().mut_epoch == epoch
     }
 }
 
@@ -80,17 +74,11 @@ impl<T: 'static> Clone for Node<T> {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct NodeEpoch {
-    pub(crate) mut_epoch: usize,
-    pub(crate) sched_epoch: usize,
-}
-
 struct NodeInner<T: 'static> {
     data: T,
     name: Option<String>,
-    epoch: NodeEpoch,
     index: NodeIndex,
+    mut_epoch: usize,
     depth: u32,
 }
 
@@ -129,7 +117,7 @@ impl<T: 'static> NodeBuilder<T> {
         self
     }
 
-    pub fn build<F>(self, executor: &mut Executor, mut cycle_fn: F) -> Node<T>
+    pub fn build<F>(self, executor: &mut Scheduler, mut cycle_fn: F) -> Node<T>
     where
         F: FnMut(&mut T, &mut Reactor) -> bool + 'static,
     {
@@ -153,7 +141,7 @@ impl<T: 'static> NodeBuilder<T> {
                 Some(state) => cycle_fn(state.borrow_mut(), reactor),
             });
 
-            let idx = executor.add_node(cycle_fn);
+            let idx = executor.add_node(Context::new(cycle_fn, depth));
             let mut inner = node.get_mut();
             inner.index = idx;
             inner.depth = depth;

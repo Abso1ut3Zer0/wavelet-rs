@@ -10,7 +10,12 @@
     -- Make sure we can also track mutable state
     -- Ideally it should feel less like we are working with nodes and more with procedures
 - Graphs should be thread local, so we call into the graph with just function calls
+  - This might not be relevant anymore, since it would forgo easy testing with mocking
 - Data on the node and the procuder need to be separate, i.e. not a trait method
     -- Have a Box<dyn FnMut(ctx: &GraphContext) -> bool)> closure
     -- Associate this closure with the node in a petgraph directed graph
     -- Petgraph node should have a weak reference to the mutable state data
+- Need to think of a way to spawn a new subgraph from a given node, since it might cause a re-entrancey issue
+  - Try having a garbage collector for the graph, which should be say Rc<RefCell<VecDeque<NodeIndex>>>
+  - On the Drop impl for the NodeInner, we register into the garbage collector
+  - At the end of the graph cycle, we can remove all the nodes in the graph that are registered in the garbage collector

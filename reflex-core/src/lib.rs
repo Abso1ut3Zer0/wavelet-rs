@@ -1,13 +1,19 @@
 use enum_as_inner::EnumAsInner;
 
-mod executor;
 mod node;
 mod reactor;
+mod scheduler;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, EnumAsInner)]
 pub enum Relationship {
     Trigger,
     Observe,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct NodeEpoch {
+    pub mut_epoch: usize,
+    pub sched_epoch: usize,
 }
 
 // thread_local! {

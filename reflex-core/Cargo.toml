@@ -7,3 +7,4 @@ edition = "2024"
 enum-as-inner = "0.6.1"
 mio = { version = "1.0.4", features = ["os-poll", "net"] }
 petgraph = "0.8.2"
+slab = "0.4.11"
