@@ -14,7 +14,7 @@ pub struct ExecutionContext<'a> {
     event_driver: &'a mut EventDriver,
     scheduler: &'a mut Scheduler,
     now: Instant,
-    wall_time: OffsetDateTime,
+    trigger_time: OffsetDateTime,
     epoch: usize,
 }
 
@@ -23,14 +23,14 @@ impl<'a> ExecutionContext<'a> {
         event_driver: &'a mut EventDriver,
         scheduler: &'a mut Scheduler,
         now: Instant,
-        wall_time: OffsetDateTime,
+        trigger_time: OffsetDateTime,
         epoch: usize,
     ) -> Self {
         Self {
             event_driver,
             scheduler,
             now,
-            wall_time,
+            trigger_time,
             epoch,
         }
     }
@@ -41,6 +41,14 @@ impl<'a> ExecutionContext<'a> {
 
     pub const fn timer_driver(&mut self) -> &mut TimerDriver {
         self.event_driver.timer_driver()
+    }
+
+    pub const fn now(&self) -> Instant {
+        self.now
+    }
+
+    pub const fn trigger_time(&self) -> OffsetDateTime {
+        self.trigger_time
     }
 
     #[inline(always)]
@@ -73,13 +81,18 @@ impl Executor {
         }
     }
 
+    #[inline(always)]
+    pub fn next_timer(&mut self) -> Option<Instant> {
+        self.event_driver.timer_driver().next_timer()
+    }
+
     pub fn cycle(&mut self, clock: &impl Clock, timeout: Option<Duration>) -> io::Result<()> {
         // Increment executor epoch
         self.epoch = self.epoch.wrapping_add(1);
 
         // Snap clock times
         let now = clock.now();
-        let wall_time = clock.wall_time();
+        let wall_time = clock.trigger_time();
 
         // Poll for external events
         self.event_driver.poll(
@@ -111,6 +124,7 @@ impl Executor {
             }
         }
 
+        // TODO - can add in the garbage collector and node spawner to be run here
         Ok(())
     }
 }

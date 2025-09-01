@@ -24,6 +24,11 @@ impl TimerDriver {
     }
 
     #[inline(always)]
+    pub(crate) fn next_timer(&self) -> Option<Instant> {
+        self.timers.first_key_value().map(|(key, _)| key.when)
+    }
+
+    #[inline(always)]
     pub fn register_timer(&mut self, idx: NodeIndex, when: Instant) -> TimerSource {
         let registration = TimerSource {
             when,

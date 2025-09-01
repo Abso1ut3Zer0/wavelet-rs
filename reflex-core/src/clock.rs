@@ -4,5 +4,5 @@ use time::OffsetDateTime;
 pub trait Clock {
     fn now(&self) -> Instant;
 
-    fn wall_time(&self) -> OffsetDateTime;
+    fn trigger_time(&self) -> OffsetDateTime;
 }
