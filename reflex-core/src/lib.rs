@@ -3,6 +3,7 @@ mod executor;
 mod graph;
 mod node;
 mod scheduler;
+mod clock;
 
 pub mod prelude {
     pub use super::event_driver::*;

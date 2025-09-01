@@ -104,7 +104,7 @@ impl<T: 'static> NodeBuilder<T> {
 
     pub fn build<F>(self, graph: &mut Graph, mut cycle_fn: F) -> Node<T>
     where
-        F: FnMut(&mut T, &mut ExecutionContext) -> bool + 'static,
+        F: FnMut(&mut T, ExecutionContext) -> bool + 'static,
     {
         let node = Node::uninitialized(self.data, self.name);
         let depth = self
@@ -118,7 +118,7 @@ impl<T: 'static> NodeBuilder<T> {
         {
             let state = node.clone();
             let cycle_fn =
-                Box::new(move |ctx: &mut ExecutionContext| cycle_fn(state.borrow_mut(), ctx));
+                Box::new(move |mut ctx: ExecutionContext| cycle_fn(state.borrow_mut(), ctx));
 
             let idx = graph.add_node(NodeContext::new(cycle_fn, depth));
             let mut inner = node.get_mut();
