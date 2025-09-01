@@ -10,7 +10,7 @@ pub struct ExecutionContext<'a> {
 }
 
 impl<'a> ExecutionContext<'a> {
-    const fn new(
+    pub(crate) const fn new(
         event_driver: &'a mut EventDriver,
         scheduler: &'a mut Scheduler,
         epoch: usize,
