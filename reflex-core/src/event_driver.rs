@@ -16,11 +16,11 @@ pub struct EventDriver {
 }
 
 impl EventDriver {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self::with_capacity(IO_CAPACITY)
     }
 
-    pub fn with_capacity(capacity: usize) -> Self {
+    pub(crate) fn with_capacity(capacity: usize) -> Self {
         Self {
             io_driver: IoDriver::with_capacity(capacity),
             timer_driver: TimerDriver::new(),
@@ -36,7 +36,7 @@ impl EventDriver {
     }
 
     #[inline(always)]
-    pub fn poll(
+    pub(crate) fn poll(
         &mut self,
         graph: &mut Graph,
         scheduler: &mut Scheduler,

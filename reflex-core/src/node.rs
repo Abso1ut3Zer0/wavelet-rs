@@ -102,8 +102,7 @@ impl<T: 'static> NodeBuilder<T> {
         self
     }
 
-    // TODO - need to pass in executor, not event_driver
-    pub fn build<F>(self, executor: &mut Graph, mut cycle_fn: F) -> Node<T>
+    pub fn build<F>(self, graph: &mut Graph, mut cycle_fn: F) -> Node<T>
     where
         F: FnMut(&mut T, &mut ExecutionContext) -> bool + 'static,
     {
@@ -121,13 +120,13 @@ impl<T: 'static> NodeBuilder<T> {
             let cycle_fn =
                 Box::new(move |ctx: &mut ExecutionContext| cycle_fn(state.borrow_mut(), ctx));
 
-            let idx = executor.add_node(NodeContext::new(cycle_fn, depth));
+            let idx = graph.add_node(NodeContext::new(cycle_fn, depth));
             let mut inner = node.get_mut();
             inner.index = idx;
             inner.depth = depth;
 
             self.parents.iter().for_each(|(parent, _, relationship)| {
-                executor.add_edge(*parent, idx, *relationship);
+                graph.add_edge(*parent, idx, *relationship);
             });
         }
 

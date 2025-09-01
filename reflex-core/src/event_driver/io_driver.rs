@@ -47,7 +47,7 @@ pub struct IoDriver {
 }
 
 impl IoDriver {
-    pub fn with_capacity(capacity: usize) -> Self {
+    pub(crate) fn with_capacity(capacity: usize) -> Self {
         Self {
             poller: mio::Poll::new().expect("failed to create mio poll"),
             events: mio::Events::with_capacity(capacity),

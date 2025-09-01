@@ -2,7 +2,7 @@ use crate::executor::ExecutionContext;
 use enum_as_inner::EnumAsInner;
 use petgraph::prelude::{EdgeRef, NodeIndex};
 
-pub type MutateFn = Box<dyn FnMut(&mut ExecutionContext) -> bool + 'static>;
+pub(crate) type MutateFn = Box<dyn FnMut(&mut ExecutionContext) -> bool + 'static>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, EnumAsInner)]
 pub enum Relationship {

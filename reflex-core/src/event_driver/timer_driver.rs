@@ -16,7 +16,7 @@ pub struct TimerDriver {
 }
 
 impl TimerDriver {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             timers: BTreeMap::new(),
             sequence: 0,
@@ -40,7 +40,7 @@ impl TimerDriver {
     }
 
     #[inline(always)]
-    pub fn poll(
+    pub(crate) fn poll(
         &mut self,
         graph: &mut Graph,
         scheduler: &mut Scheduler,
