@@ -4,15 +4,17 @@ use crate::graph::Graph;
 use crate::node::Node;
 use crate::prelude::Scheduler;
 use petgraph::graph::NodeIndex;
+use std::cell::UnsafeCell;
 use std::io;
 use std::time::{Duration, Instant};
 use time::OffsetDateTime;
 
-const EDGE_BUFFER_CAPACITY: usize = 32;
+const BUFFER_CAPACITY: usize = 32;
 
 pub struct ExecutionContext<'a> {
     event_driver: &'a mut EventDriver,
-    scheduler: &'a mut Scheduler,
+    scheduler: &'a UnsafeCell<Scheduler>,
+    current: Option<NodeIndex>,
     now: Instant,
     trigger_time: OffsetDateTime,
     epoch: usize,
@@ -21,7 +23,7 @@ pub struct ExecutionContext<'a> {
 impl<'a> ExecutionContext<'a> {
     pub(crate) const fn new(
         event_driver: &'a mut EventDriver,
-        scheduler: &'a mut Scheduler,
+        scheduler: &'a UnsafeCell<Scheduler>,
         now: Instant,
         trigger_time: OffsetDateTime,
         epoch: usize,
@@ -29,6 +31,7 @@ impl<'a> ExecutionContext<'a> {
         Self {
             event_driver,
             scheduler,
+            current: None,
             now,
             trigger_time,
             epoch,
@@ -51,9 +54,23 @@ impl<'a> ExecutionContext<'a> {
         self.trigger_time
     }
 
+    const fn set_current(&mut self, node_index: NodeIndex) {
+        self.current = Some(node_index);
+    }
+
+    const fn current(&self) -> NodeIndex {
+        self.current.unwrap()
+    }
+
     #[inline(always)]
-    pub fn schedule_node(&mut self, node_index: NodeIndex, depth: u32) {
-        self.scheduler.schedule(node_index, depth);
+    pub fn schedule_node<T>(&mut self, node: &Node<T>) {
+        unsafe {
+            self.scheduler
+                .get()
+                .as_mut()
+                .unwrap_unchecked()
+                .schedule(node.index(), node.depth())
+        }
     }
 
     #[inline(always)]
@@ -64,7 +81,12 @@ impl<'a> ExecutionContext<'a> {
 
 pub struct Executor {
     graph: Graph,
-    scheduler: Scheduler,
+    /// SAFETY: Scheduler access through UnsafeCell is safe because:
+    /// 1. Single-threaded execution only
+    /// 2. All mutable accesses are temporally separated (no simultaneous borrows)
+    /// 3. Access pattern: pop() → node execution → schedule() → repeat
+    /// Each step releases its mutable reference before the next begins.
+    scheduler: UnsafeCell<Scheduler>,
     event_driver: EventDriver,
     edge_buffer: Vec<NodeIndex>,
     epoch: usize,
@@ -74,9 +96,9 @@ impl Executor {
     pub fn new() -> Self {
         Self {
             graph: Graph::new(),
-            scheduler: Scheduler::new(),
+            scheduler: UnsafeCell::new(Scheduler::new()),
             event_driver: EventDriver::new(),
-            edge_buffer: Vec::with_capacity(EDGE_BUFFER_CAPACITY),
+            edge_buffer: Vec::with_capacity(BUFFER_CAPACITY),
             epoch: 0,
         }
     }
@@ -97,29 +119,37 @@ impl Executor {
         // Poll for external events
         self.event_driver.poll(
             &mut self.graph,
-            &mut self.scheduler,
+            unsafe { self.scheduler.get().as_mut().unwrap_unchecked() },
             timeout,
             now,
             self.epoch,
         )?;
 
-        // Process nodes in the graph
-        while let Some(node_idx) = self.scheduler.pop() {
-            let ctx = ExecutionContext::new(
-                &mut self.event_driver,
-                &mut self.scheduler,
-                now,
-                wall_time,
-                self.epoch,
-            );
+        let mut ctx = ExecutionContext::new(
+            &mut self.event_driver,
+            &self.scheduler,
+            now,
+            wall_time,
+            self.epoch,
+        );
 
-            if self.graph.mutate(ctx, node_idx) {
+        // Process nodes in the graph
+        while let Some(node_idx) = unsafe { self.scheduler.get().as_mut().unwrap_unchecked().pop() }
+        {
+            ctx.set_current(node_idx);
+            if self.graph.mutate(&mut ctx, node_idx) {
                 self.edge_buffer
                     .extend(self.graph.triggering_edges(node_idx));
                 self.edge_buffer.drain(..).for_each(|child| {
                     self.graph
                         .can_schedule(child, self.epoch)
-                        .map(|depth| self.scheduler.schedule(child, depth));
+                        .map(|depth| unsafe {
+                            self.scheduler
+                                .get()
+                                .as_mut()
+                                .unwrap_unchecked()
+                                .schedule(child, depth)
+                        });
                 })
             }
         }

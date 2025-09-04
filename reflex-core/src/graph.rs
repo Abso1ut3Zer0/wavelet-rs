@@ -4,7 +4,7 @@ use enum_as_inner::EnumAsInner;
 use petgraph::prelude::{EdgeRef, NodeIndex};
 use petgraph::visit::IntoEdgesDirected;
 
-pub(crate) type MutateFn = Box<dyn FnMut(ExecutionContext) -> bool + 'static>;
+pub(crate) type MutateFn = Box<dyn FnMut(&mut ExecutionContext) -> bool + 'static>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, EnumAsInner)]
 pub enum Relationship {
@@ -28,7 +28,7 @@ impl NodeContext {
     }
 
     #[inline(always)]
-    fn mutate(&mut self, mut ctx: ExecutionContext) -> bool {
+    fn mutate(&mut self, ctx: &mut ExecutionContext) -> bool {
         (self.mutate_fn)(ctx)
     }
 }
@@ -67,7 +67,7 @@ impl Graph {
     }
 
     #[inline(always)]
-    pub(crate) fn mutate(&mut self, mut ctx: ExecutionContext, node_index: NodeIndex) -> bool {
+    pub(crate) fn mutate(&mut self, mut ctx: &mut ExecutionContext, node_index: NodeIndex) -> bool {
         self.inner[node_index].mutate(ctx)
     }
 
@@ -93,7 +93,7 @@ mod tests {
     use crate::event_driver::EventDriver;
     use crate::executor::ExecutionContext;
     use crate::prelude::Scheduler;
-    use std::cell::Cell;
+    use std::cell::{Cell, UnsafeCell};
     use std::rc::Rc;
     use std::time::Instant;
     use time::OffsetDateTime;
@@ -103,7 +103,7 @@ mod tests {
 
     fn create_test_node(call_count: Rc<Cell<i32>>, should_mutate: bool) -> NodeContext {
         NodeContext::new(
-            Box::new(move |mut _ctx: ExecutionContext| {
+            Box::new(move |mut _ctx: &mut ExecutionContext| {
                 call_count.set(call_count.get() + 1);
                 should_mutate
             }),
@@ -188,17 +188,17 @@ mod tests {
 
         // Create real components for ExecutionContext
         let mut event_driver = EventDriver::new();
-        let mut scheduler = Scheduler::new();
+        let mut scheduler = UnsafeCell::new(Scheduler::new());
 
         let mut exec_ctx = ExecutionContext::new(
             &mut event_driver,
-            &mut scheduler,
+            &scheduler,
             Instant::now(),
             OffsetDateTime::now_utc(),
             1,
         );
 
-        let result = graph.mutate(exec_ctx, node);
+        let result = graph.mutate(&mut exec_ctx, node);
 
         assert_eq!(result, should_mutate);
         assert_eq!(call_count.get(), 1); // Function should have been called once
