@@ -1,4 +1,4 @@
-use crate::executor::ExecutionContext;
+use crate::executor::{ExecutionContext, Executor};
 use crate::graph::Relationship;
 use crate::graph::{Graph, NodeContext};
 use petgraph::prelude::NodeIndex;
@@ -80,6 +80,7 @@ pub struct NodeBuilder<T: 'static> {
     data: T,
     name: Option<String>,
     parents: Vec<(NodeIndex, u32, Relationship)>,
+    on_init: Option<Box<dyn FnMut(&mut Executor, &mut T, NodeIndex) + 'static>>,
 }
 
 impl<T: 'static> NodeBuilder<T> {
@@ -88,6 +89,7 @@ impl<T: 'static> NodeBuilder<T> {
             data,
             name: None,
             parents: Vec::new(),
+            on_init: None,
         }
     }
 
@@ -102,7 +104,15 @@ impl<T: 'static> NodeBuilder<T> {
         self
     }
 
-    pub fn build<F>(self, graph: &mut Graph, mut cycle_fn: F) -> Node<T>
+    pub fn on_init<F>(mut self, on_init: F) -> Self
+    where
+        F: FnMut(&mut Executor, &mut T, NodeIndex) + 'static,
+    {
+        self.on_init = Some(Box::new(on_init));
+        self
+    }
+
+    pub fn build<F>(self, executor: &mut Executor, mut cycle_fn: F) -> Node<T>
     where
         F: FnMut(&mut T, &mut ExecutionContext) -> bool + 'static,
     {
@@ -120,14 +130,19 @@ impl<T: 'static> NodeBuilder<T> {
             let cycle_fn =
                 Box::new(move |ctx: &mut ExecutionContext| cycle_fn(state.borrow_mut(), ctx));
 
-            let idx = graph.add_node(NodeContext::new(cycle_fn, depth));
+            let idx = executor.graph().add_node(NodeContext::new(cycle_fn, depth));
             let mut inner = node.get_mut();
             inner.index = idx;
             inner.depth = depth;
 
             self.parents.iter().for_each(|(parent, _, relationship)| {
-                graph.add_edge(*parent, idx, *relationship);
+                executor.graph().add_edge(*parent, idx, *relationship);
             });
+
+            executor.scheduler().enable_depth(depth);
+            if let Some(mut on_init) = self.on_init {
+                (on_init)(executor, &mut node.get_mut().data, idx)
+            }
         }
 
         node

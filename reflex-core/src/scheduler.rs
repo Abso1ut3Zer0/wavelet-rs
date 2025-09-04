@@ -3,6 +3,7 @@ use std::collections::VecDeque;
 
 const INITIAL_CAPACITY: usize = 256;
 
+#[derive(Debug)]
 pub struct Scheduler {
     multi_queue: Vec<VecDeque<NodeIndex>>,
     curr_depth: usize,
@@ -23,10 +24,15 @@ impl Scheduler {
         );
     }
 
-    pub(crate) fn reserve(&mut self, max_depth: u32) {
-        let len = self.multi_queue.len();
-        self.multi_queue
-            .reserve((max_depth as usize).saturating_sub(len));
+    pub(crate) fn enable_depth(&mut self, depth: u32) {
+        let required_len = depth + 1;
+        if self.multi_queue.len() < required_len as usize {
+            self.resize(required_len);
+        }
+    }
+
+    pub(crate) const fn len(&self) -> usize {
+        self.multi_queue.len()
     }
 
     #[inline(always)]
@@ -34,7 +40,7 @@ impl Scheduler {
         // We assert here since scheduling above
         // the current depth is undefined behavior
         // that can cause certain execution paths
-        // no never run. This can lead to dropped
+        // to never run. This can lead to dropped
         // messages in processing.
         assert!(
             (depth as usize) >= self.curr_depth,
