@@ -101,6 +101,18 @@ impl Executor {
         }
     }
 
+    pub const fn io_driver(&mut self) -> &mut IoDriver {
+        self.event_driver.io_driver()
+    }
+
+    pub const fn timer_driver(&mut self) -> &mut TimerDriver {
+        self.event_driver.timer_driver()
+    }
+
+    pub const fn yield_driver(&mut self) -> &mut YieldDriver {
+        self.event_driver.yield_driver()
+    }
+
     pub(crate) const fn graph(&mut self) -> &mut Graph {
         &mut self.graph
     }
@@ -110,7 +122,7 @@ impl Executor {
     }
 
     #[inline(always)]
-    pub fn next_timer(&mut self) -> Option<Instant> {
+    pub(crate) fn next_timer(&mut self) -> Option<Instant> {
         self.event_driver.timer_driver().next_timer()
     }
 
@@ -189,15 +201,14 @@ mod tests {
         let clock = TestClock::new();
 
         let call_count = Rc::new(Cell::new(0));
-        let call_count_clone = call_count.clone();
 
         // Create a simple node that increments a counter
-        let _node = NodeBuilder::new(())
+        let _node = NodeBuilder::new(call_count.clone())
             .on_init(|executor, _, idx| {
-                executor.event_driver.yield_driver().yield_now(idx);
+                executor.yield_driver().yield_now(idx);
             })
-            .build(&mut executor, move |_, ctx| {
-                call_count_clone.set(call_count_clone.get() + 1);
+            .build(&mut executor, move |data, ctx| {
+                data.set(data.get() + 1);
                 let current = ctx.current();
                 ctx.yield_driver().yield_now(current);
                 false
@@ -209,6 +220,12 @@ mod tests {
         // Verify the node was called
         assert_eq!(call_count.get(), 1);
         assert_eq!(executor.epoch, 1);
+
+        executor.cycle(&clock, Some(Duration::ZERO)).unwrap();
+
+        // Verify the node was called a second time
+        assert_eq!(call_count.get(), 2);
+        assert_eq!(executor.epoch, 2);
     }
 
     #[test]
