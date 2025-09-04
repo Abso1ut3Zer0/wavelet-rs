@@ -2,7 +2,7 @@ use crate::clock::Clock;
 use crate::event_driver::{EventDriver, IoDriver, TimerDriver};
 use crate::graph::Graph;
 use crate::node::Node;
-use crate::prelude::Scheduler;
+use crate::prelude::{Scheduler, YieldDriver};
 use petgraph::graph::NodeIndex;
 use std::cell::UnsafeCell;
 use std::io;
@@ -14,14 +14,14 @@ const BUFFER_CAPACITY: usize = 32;
 pub struct ExecutionContext<'a> {
     event_driver: &'a mut EventDriver,
     scheduler: &'a UnsafeCell<Scheduler>,
-    current: Option<NodeIndex>,
+    current: NodeIndex,
     now: Instant,
     trigger_time: OffsetDateTime,
     epoch: usize,
 }
 
 impl<'a> ExecutionContext<'a> {
-    pub(crate) const fn new(
+    pub(crate) fn new(
         event_driver: &'a mut EventDriver,
         scheduler: &'a UnsafeCell<Scheduler>,
         now: Instant,
@@ -31,7 +31,7 @@ impl<'a> ExecutionContext<'a> {
         Self {
             event_driver,
             scheduler,
-            current: None,
+            current: NodeIndex::new(0),
             now,
             trigger_time,
             epoch,
@@ -46,6 +46,14 @@ impl<'a> ExecutionContext<'a> {
         self.event_driver.timer_driver()
     }
 
+    pub const fn yield_driver(&mut self) -> &mut YieldDriver {
+        self.event_driver.yield_driver()
+    }
+
+    pub const fn current(&self) -> NodeIndex {
+        self.current
+    }
+
     pub const fn now(&self) -> Instant {
         self.now
     }
@@ -55,22 +63,12 @@ impl<'a> ExecutionContext<'a> {
     }
 
     const fn set_current(&mut self, node_index: NodeIndex) {
-        self.current = Some(node_index);
-    }
-
-    const fn current(&self) -> NodeIndex {
-        self.current.unwrap()
+        self.current = node_index;
     }
 
     #[inline(always)]
     pub fn schedule_node<T>(&mut self, node: &Node<T>) {
-        unsafe {
-            self.scheduler
-                .get()
-                .as_mut()
-                .unwrap_unchecked()
-                .schedule(node.index(), node.depth())
-        }
+        unsafe { (&mut *self.scheduler.get()).schedule(node.index(), node.depth()) }
     }
 
     #[inline(always)]
@@ -114,12 +112,12 @@ impl Executor {
 
         // Snap clock times
         let now = clock.now();
-        let wall_time = clock.trigger_time();
+        let trigger_time = clock.trigger_time();
 
         // Poll for external events
         self.event_driver.poll(
             &mut self.graph,
-            unsafe { self.scheduler.get().as_mut().unwrap_unchecked() },
+            unsafe { &mut *self.scheduler.get() },
             timeout,
             now,
             self.epoch,
@@ -129,13 +127,12 @@ impl Executor {
             &mut self.event_driver,
             &self.scheduler,
             now,
-            wall_time,
+            trigger_time,
             self.epoch,
         );
 
         // Process nodes in the graph
-        while let Some(node_idx) = unsafe { self.scheduler.get().as_mut().unwrap_unchecked().pop() }
-        {
+        while let Some(node_idx) = unsafe { (&mut *self.scheduler.get()).pop() } {
             ctx.set_current(node_idx);
             if self.graph.mutate(&mut ctx, node_idx) {
                 self.edge_buffer
@@ -144,11 +141,7 @@ impl Executor {
                     self.graph
                         .can_schedule(child, self.epoch)
                         .map(|depth| unsafe {
-                            self.scheduler
-                                .get()
-                                .as_mut()
-                                .unwrap_unchecked()
-                                .schedule(child, depth)
+                            (&mut *self.scheduler.get()).schedule(child, depth)
                         });
                 })
             }
