@@ -203,7 +203,7 @@ mod tests {
         let call_count = Rc::new(Cell::new(0));
 
         // Create a simple node that increments a counter
-        let _node = NodeBuilder::new(call_count.clone())
+        let node = NodeBuilder::new(call_count)
             .on_init(|executor, _, idx| {
                 executor.yield_driver().yield_now(idx);
             })
@@ -218,13 +218,13 @@ mod tests {
         executor.cycle(&clock, Some(Duration::ZERO)).unwrap();
 
         // Verify the node was called
-        assert_eq!(call_count.get(), 1);
+        assert_eq!(node.borrow().get(), 1);
         assert_eq!(executor.epoch, 1);
 
         executor.cycle(&clock, Some(Duration::ZERO)).unwrap();
 
         // Verify the node was called a second time
-        assert_eq!(call_count.get(), 2);
+        assert_eq!(node.borrow().get(), 2);
         assert_eq!(executor.epoch, 2);
     }
 
