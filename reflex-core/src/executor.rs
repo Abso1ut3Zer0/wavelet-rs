@@ -1,8 +1,9 @@
 use crate::clock::Clock;
-use crate::event_driver::{EventDriver, IoDriver, TimerDriver};
+use crate::event_driver::{EventDriver, IoDriver, IoSource, TimerDriver, TimerSource};
 use crate::graph::Graph;
 use crate::node::Node;
 use crate::prelude::{Scheduler, YieldDriver};
+use mio::Interest;
 use petgraph::graph::NodeIndex;
 use std::cell::UnsafeCell;
 use std::io;
@@ -38,16 +39,52 @@ impl<'a> ExecutionContext<'a> {
         }
     }
 
-    pub const fn io_driver(&mut self) -> &mut IoDriver {
-        self.event_driver.io_driver()
+    #[inline(always)]
+    pub fn register_io<S: mio::event::Source>(
+        &mut self,
+        mut source: S,
+        idx: NodeIndex,
+        interest: Interest,
+    ) -> io::Result<IoSource<S>> {
+        self.event_driver
+            .io_driver()
+            .register_source(source, idx, interest)
     }
 
-    pub const fn timer_driver(&mut self) -> &mut TimerDriver {
-        self.event_driver.timer_driver()
+    #[inline(always)]
+    pub fn deregister_io<S: mio::event::Source>(
+        &mut self,
+        mut source: IoSource<S>,
+    ) -> io::Result<NodeIndex> {
+        self.event_driver.io_driver().deregister_source(source)
     }
 
-    pub const fn yield_driver(&mut self) -> &mut YieldDriver {
-        self.event_driver.yield_driver()
+    #[inline(always)]
+    pub fn reregister_io<S: mio::event::Source>(
+        &mut self,
+        handle: &mut IoSource<S>,
+        interest: Interest,
+    ) -> io::Result<()> {
+        self.event_driver
+            .io_driver()
+            .reregister_source(handle, interest)
+    }
+
+    #[inline(always)]
+    pub fn register_timer(&mut self, node_index: NodeIndex, when: Instant) -> TimerSource {
+        self.event_driver
+            .timer_driver()
+            .register_timer(node_index, when)
+    }
+
+    #[inline(always)]
+    pub fn deregister_timer(&mut self, source: TimerSource) {
+        self.event_driver.timer_driver().deregister_timer(source)
+    }
+
+    #[inline(always)]
+    pub fn yield_now(&mut self, node_index: NodeIndex) {
+        self.event_driver.yield_driver().yield_now(node_index)
     }
 
     pub const fn current(&self) -> NodeIndex {
@@ -182,13 +219,6 @@ mod tests {
     use std::cell::{Cell, RefCell};
     use std::rc::Rc;
 
-    fn create_test_node_with_closure<F>(closure: F, depth: u32) -> NodeContext
-    where
-        F: FnMut(&mut ExecutionContext) -> bool + 'static,
-    {
-        NodeContext::new(Box::new(closure), depth)
-    }
-
     #[test]
     fn test_executor_creation() {
         let executor = Executor::new();
@@ -208,7 +238,7 @@ mod tests {
             .build(&mut executor, |data, ctx| {
                 *data += 1;
                 let current = ctx.current();
-                ctx.yield_driver().yield_now(current);
+                ctx.yield_now(current);
                 false
             });
 
@@ -239,10 +269,10 @@ mod tests {
             })
             .build(&mut executor, |data, _ctx| {
                 *data += 1;
-                true // This should trigger child
+                true // This should trigger the child
             });
 
-        // Create child node that depends on parent
+        // Create a child node that depends on parent
         let child_node = NodeBuilder::new(0)
             .add_relationship(&parent_node, Relationship::Trigger)
             .build(&mut executor, |data, _ctx| {
@@ -271,10 +301,10 @@ mod tests {
             })
             .build(&mut executor, |data, _ctx| {
                 *data += 1;
-                true // This would trigger if relationship was Trigger
+                true // This would trigger if the relationship was Trigger
             });
 
-        // Create child node with Observe relationship
+        // Create a child node with Observe relationship
         let child_node = NodeBuilder::new(0)
             .add_relationship(&parent_node, Relationship::Observe)
             .build(&mut executor, |data, _ctx| {
@@ -310,7 +340,7 @@ mod tests {
             .cycle(&clock, Some(Duration::from_millis(10)))
             .unwrap();
 
-        // Verify the node was called due to I/O event
+        // Verify the node was called due to an I/O event
         assert_eq!(*node.borrow(), 1);
     }
 
@@ -328,11 +358,10 @@ mod tests {
             .build(&mut executor, |data, ctx| {
                 *data += 1;
 
-                // On the first run, register a timer for next the execution
+                // On the first run, register a timer for the next execution
                 if *data == 1 {
                     let timer_time = ctx.now() + Duration::from_millis(100);
-                    let current = ctx.current();
-                    let _timer_reg = ctx.timer_driver().register_timer(current, timer_time);
+                    let _timer_reg = ctx.register_timer(ctx.current(), timer_time);
                     // In real scenarios, you'd store timer_reg in node data for cleanup
                 }
 
@@ -363,8 +392,7 @@ mod tests {
             .build(&mut executor, |data, ctx| {
                 *data += 1;
                 let next_time = ctx.now() + Duration::from_secs(3);
-                let current = ctx.current();
-                ctx.timer_driver().register_timer(current, next_time);
+                ctx.register_timer(ctx.current(), next_time);
                 false
             });
 
@@ -375,7 +403,7 @@ mod tests {
         assert_eq!(*node.borrow(), 1);
 
         executor.cycle(&clock, Some(Duration::ZERO)).unwrap();
-        // Node not called again, timer not expired
+        // Node is not called again, timer not expired
         assert_eq!(*node.borrow(), 1);
     }
 
@@ -386,59 +414,17 @@ mod tests {
 
         assert_eq!(executor.epoch, 0);
 
-        // Run first cycle
+        // Run the first cycle
         executor.cycle(&clock, Some(Duration::ZERO)).unwrap();
         assert_eq!(executor.epoch, 1);
 
-        // Run second cycle
+        // Run the second cycle
         executor.cycle(&clock, Some(Duration::ZERO)).unwrap();
         assert_eq!(executor.epoch, 2);
 
-        // Run third cycle
+        // Run the third cycle
         executor.cycle(&clock, Some(Duration::ZERO)).unwrap();
         assert_eq!(executor.epoch, 3);
-    }
-
-    #[test]
-    fn test_execution_context_access() {
-        let mut executor = Executor::new();
-        let clock = TestClock::new();
-
-        let context_checks = Rc::new(RefCell::new(Vec::new()));
-        let context_checks_clone = context_checks.clone();
-
-        let _node = NodeBuilder::new(0)
-            .on_init(|executor, _, idx| {
-                executor.yield_driver().yield_now(idx);
-            })
-            .build(&mut executor, move |_data, ctx| {
-                let mut checks = context_checks_clone.borrow_mut();
-
-                // Test various context methods
-                checks.push(format!("current: {:?}", ctx.current()));
-                checks.push(format!("now: {:?}", ctx.now()));
-                checks.push(format!("trigger_time: {:?}", ctx.trigger_time()));
-
-                // Test that we can access drivers
-                let _io_driver = ctx.io_driver();
-                let _timer_driver = ctx.timer_driver();
-                let _yield_driver = ctx.yield_driver();
-
-                checks.push("drivers_accessible: true".to_string());
-
-                false
-            });
-
-        // Run cycle
-        executor.cycle(&clock, Some(Duration::ZERO)).unwrap();
-
-        let checks = context_checks.borrow();
-        assert!(checks.len() > 0);
-        assert!(
-            checks
-                .iter()
-                .any(|s| s.contains("drivers_accessible: true"))
-        );
     }
 
     #[test]
@@ -476,7 +462,7 @@ mod tests {
             .build(&mut executor, move |data, _ctx| {
                 *data += 1;
                 call_order_3.borrow_mut().push(3);
-                false // End of chain
+                false // End of the chain
             });
 
         // Run cycle
@@ -502,9 +488,8 @@ mod tests {
             })
             .build(&mut executor, |data, ctx| {
                 *data += 1;
-                let current = ctx.current();
                 let future_time = ctx.now() + Duration::from_millis(500);
-                ctx.timer_driver().register_timer(current, future_time);
+                ctx.register_timer(ctx.current(), future_time);
                 false
             });
 
@@ -532,7 +517,7 @@ mod tests {
                 false
             });
 
-        // Run cycle - yield driver should schedule the node
+        // Run cycle - the yield driver should schedule the node
         executor.cycle(&clock, Some(Duration::ZERO)).unwrap();
 
         // Verify the node was called
