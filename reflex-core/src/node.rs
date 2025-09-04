@@ -1,8 +1,10 @@
+use crate::event_driver::Notifier;
 use crate::executor::{ExecutionContext, Executor};
 use crate::graph::Relationship;
 use crate::graph::{Graph, NodeContext};
 use petgraph::prelude::NodeIndex;
 use std::cell::UnsafeCell;
+use std::io;
 use std::rc::Rc;
 
 pub struct Node<T: 'static>(Rc<UnsafeCell<NodeInner<T>>>);
@@ -108,6 +110,7 @@ impl<T: 'static> NodeBuilder<T> {
     where
         F: FnMut(&mut Executor, &mut T, NodeIndex) + 'static,
     {
+        assert!(self.on_init.is_none(), "cannot set on_init twice");
         self.on_init = Some(Box::new(on_init));
         self
     }
@@ -146,5 +149,18 @@ impl<T: 'static> NodeBuilder<T> {
         }
 
         node
+    }
+
+    pub fn build_with_notifier<F>(
+        self,
+        executor: &mut Executor,
+        mut cycle_fn: F,
+    ) -> io::Result<(Node<T>, Notifier)>
+    where
+        F: FnMut(&mut T, &mut ExecutionContext) -> bool + 'static,
+    {
+        let node = self.build(executor, cycle_fn);
+        let notifier = executor.io_driver().register_notifier(node.index())?;
+        Ok((node, notifier))
     }
 }

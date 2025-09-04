@@ -296,25 +296,14 @@ mod tests {
         let clock = TestClock::new();
 
         // Create a node that will be triggered by I/O
-        let node = NodeBuilder::new(0)
-            .on_init(|executor, _, idx| {
-                // Register a notifier for the node during initialization
-                let notifier = executor
-                    .event_driver
-                    .io_driver()
-                    .register_notifier(idx)
-                    .expect("Failed to register notifier");
-
-                // Trigger the notification immediately to test
-                notifier.notify().expect("Failed to notify");
-
-                // Note: In a real scenario, you'd store the notifier handle
-                // in the node data for later use
-            })
-            .build(&mut executor, |data, _ctx| {
+        let (node, notifier) = NodeBuilder::new(0)
+            .build_with_notifier(&mut executor, |data, _ctx| {
                 *data += 1;
                 false
-            });
+            })
+            .unwrap();
+
+        notifier.notify().unwrap();
 
         // Run cycle - this should pick up the I/O event and schedule the node
         executor
