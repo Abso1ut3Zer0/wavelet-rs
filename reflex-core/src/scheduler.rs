@@ -31,10 +31,6 @@ impl Scheduler {
         }
     }
 
-    pub(crate) const fn len(&self) -> usize {
-        self.multi_queue.len()
-    }
-
     #[inline(always)]
     pub fn schedule(&mut self, node_index: NodeIndex, depth: u32) {
         // We assert here since scheduling above

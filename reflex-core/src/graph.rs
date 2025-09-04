@@ -1,8 +1,6 @@
 use crate::executor::ExecutionContext;
-use crate::scheduler::Scheduler;
 use enum_as_inner::EnumAsInner;
 use petgraph::prelude::{EdgeRef, NodeIndex};
-use petgraph::visit::IntoEdgesDirected;
 
 pub(crate) type MutateFn = Box<dyn FnMut(&mut ExecutionContext) -> bool + 'static>;
 
@@ -67,7 +65,7 @@ impl Graph {
     }
 
     #[inline(always)]
-    pub(crate) fn mutate(&mut self, mut ctx: &mut ExecutionContext, node_index: NodeIndex) -> bool {
+    pub(crate) fn mutate(&mut self, ctx: &mut ExecutionContext, node_index: NodeIndex) -> bool {
         self.inner[node_index].mutate(ctx)
     }
 
