@@ -123,6 +123,7 @@ impl Executor {
             self.epoch,
         )?;
 
+        // Create execution context for the current epoch
         let mut ctx = ExecutionContext::new(
             &mut self.event_driver,
             &self.scheduler,
