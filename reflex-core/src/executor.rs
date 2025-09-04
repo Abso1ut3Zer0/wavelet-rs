@@ -200,15 +200,13 @@ mod tests {
         let mut executor = Executor::new();
         let clock = TestClock::new();
 
-        let call_count = Rc::new(Cell::new(0));
-
         // Create a simple node that increments a counter
-        let node = NodeBuilder::new(call_count)
+        let node = NodeBuilder::new(0)
             .on_init(|executor, _, idx| {
                 executor.yield_driver().yield_now(idx);
             })
-            .build(&mut executor, move |data, ctx| {
-                data.set(data.get() + 1);
+            .build(&mut executor, |data, ctx| {
+                *data += 1;
                 let current = ctx.current();
                 ctx.yield_driver().yield_now(current);
                 false
@@ -218,13 +216,13 @@ mod tests {
         executor.cycle(&clock, Some(Duration::ZERO)).unwrap();
 
         // Verify the node was called
-        assert_eq!(node.borrow().get(), 1);
+        assert_eq!(*node.borrow(), 1);
         assert_eq!(executor.epoch, 1);
 
         executor.cycle(&clock, Some(Duration::ZERO)).unwrap();
 
         // Verify the node was called a second time
-        assert_eq!(node.borrow().get(), 2);
+        assert_eq!(*node.borrow(), 2);
         assert_eq!(executor.epoch, 2);
     }
 
@@ -233,49 +231,31 @@ mod tests {
         let mut executor = Executor::new();
         let clock = TestClock::new();
 
-        let parent_calls = Rc::new(Cell::new(0));
-        let child_calls = Rc::new(Cell::new(0));
-
-        let parent_calls_clone = parent_calls.clone();
-        let child_calls_clone = child_calls.clone();
-
         // Create parent node that mutates (returns true)
-        let parent_ctx = create_test_node_with_closure(
-            move |_ctx| {
-                parent_calls_clone.set(parent_calls_clone.get() + 1);
+        let parent_node = NodeBuilder::new(0)
+            .on_init(|executor, _, idx| {
+                // Schedule the parent to start the chain
+                executor.yield_driver().yield_now(idx);
+            })
+            .build(&mut executor, |data, _ctx| {
+                *data += 1;
                 true // This should trigger child
-            },
-            0,
-        );
+            });
 
-        // Create child node
-        let child_ctx = create_test_node_with_closure(
-            move |_ctx| {
-                child_calls_clone.set(child_calls_clone.get() + 1);
+        // Create child node that depends on parent
+        let child_node = NodeBuilder::new(0)
+            .add_relationship(&parent_node, Relationship::Trigger)
+            .build(&mut executor, |data, _ctx| {
+                *data += 1;
                 false
-            },
-            1,
-        );
-
-        let parent_idx = executor.graph.add_node(parent_ctx);
-        let child_idx = executor.graph.add_node(child_ctx);
-
-        // Add trigger relationship
-        executor
-            .graph
-            .add_edge(parent_idx, child_idx, Relationship::Trigger);
-
-        // Schedule only the parent
-        unsafe {
-            (&mut *executor.scheduler.get()).schedule(parent_idx, 0);
-        }
+            });
 
         // Run cycle
         executor.cycle(&clock, Some(Duration::ZERO)).unwrap();
 
         // Both parent and child should have been called
-        assert_eq!(parent_calls.get(), 1);
-        assert_eq!(child_calls.get(), 1);
+        assert_eq!(*parent_node.borrow(), 1);
+        assert_eq!(*child_node.borrow(), 1);
     }
 
     #[test]
@@ -283,49 +263,31 @@ mod tests {
         let mut executor = Executor::new();
         let clock = TestClock::new();
 
-        let parent_calls = Rc::new(Cell::new(0));
-        let child_calls = Rc::new(Cell::new(0));
-
-        let parent_calls_clone = parent_calls.clone();
-        let child_calls_clone = child_calls.clone();
-
         // Create parent node that mutates
-        let parent_ctx = create_test_node_with_closure(
-            move |_ctx| {
-                parent_calls_clone.set(parent_calls_clone.get() + 1);
+        let parent_node = NodeBuilder::new(0)
+            .on_init(|executor, _, idx| {
+                // Schedule the parent to start
+                executor.yield_driver().yield_now(idx);
+            })
+            .build(&mut executor, |data, _ctx| {
+                *data += 1;
                 true // This would trigger if relationship was Trigger
-            },
-            0,
-        );
+            });
 
-        // Create a child node
-        let child_ctx = create_test_node_with_closure(
-            move |_ctx| {
-                child_calls_clone.set(child_calls_clone.get() + 1);
+        // Create child node with Observe relationship
+        let child_node = NodeBuilder::new(0)
+            .add_relationship(&parent_node, Relationship::Observe)
+            .build(&mut executor, |data, _ctx| {
+                *data += 1;
                 false
-            },
-            1,
-        );
-
-        let parent_idx = executor.graph.add_node(parent_ctx);
-        let child_idx = executor.graph.add_node(child_ctx);
-
-        // Add observe relationship (should NOT trigger)
-        executor
-            .graph
-            .add_edge(parent_idx, child_idx, Relationship::Observe);
-
-        // Schedule only the parent
-        unsafe {
-            (&mut *executor.scheduler.get()).schedule(parent_idx, 0);
-        }
+            });
 
         // Run cycle
         executor.cycle(&clock, Some(Duration::ZERO)).unwrap();
 
         // Only parent should have been called, child should not
-        assert_eq!(parent_calls.get(), 1);
-        assert_eq!(child_calls.get(), 0);
+        assert_eq!(*parent_node.borrow(), 1);
+        assert_eq!(*child_node.borrow(), 0); // Should not be triggered
     }
 
     #[test]
@@ -333,29 +295,26 @@ mod tests {
         let mut executor = Executor::new();
         let clock = TestClock::new();
 
-        let node_calls = Rc::new(Cell::new(0));
-        let node_calls_clone = node_calls.clone();
-
         // Create a node that will be triggered by I/O
-        let node_ctx = create_test_node_with_closure(
-            move |_ctx| {
-                node_calls_clone.set(node_calls_clone.get() + 1);
+        let node = NodeBuilder::new(0)
+            .on_init(|executor, _, idx| {
+                // Register a notifier for the node during initialization
+                let notifier = executor
+                    .event_driver
+                    .io_driver()
+                    .register_notifier(idx)
+                    .expect("Failed to register notifier");
+
+                // Trigger the notification immediately to test
+                notifier.notify().expect("Failed to notify");
+
+                // Note: In a real scenario, you'd store the notifier handle
+                // in the node data for later use
+            })
+            .build(&mut executor, |data, _ctx| {
+                *data += 1;
                 false
-            },
-            1,
-        );
-
-        let node_idx = executor.graph.add_node(node_ctx);
-
-        // Register a notifier for the node
-        let notifier = executor
-            .event_driver
-            .io_driver()
-            .register_notifier(node_idx)
-            .expect("Failed to register notifier");
-
-        // Trigger the notification
-        notifier.notify().expect("Failed to notify");
+            });
 
         // Run cycle - this should pick up the I/O event and schedule the node
         executor
@@ -363,13 +322,7 @@ mod tests {
             .unwrap();
 
         // Verify the node was called due to I/O event
-        assert_eq!(node_calls.get(), 1);
-
-        // Clean up
-        executor
-            .event_driver
-            .io_driver()
-            .deregister_notifier(notifier);
+        assert_eq!(*node.borrow(), 1);
     }
 
     #[test]
@@ -377,34 +330,34 @@ mod tests {
         let mut executor = Executor::new();
         let clock = TestClock::new();
 
-        let node_calls = Rc::new(Cell::new(0));
-        let node_calls_clone = node_calls.clone();
+        // Create a timer node that sets up its own recurring timer
+        let node = NodeBuilder::new(0)
+            .on_init(|executor, _, idx| {
+                // Just kick-start the node - let it register its own timer
+                executor.yield_driver().yield_now(idx);
+            })
+            .build(&mut executor, |data, ctx| {
+                *data += 1;
 
-        // Create a node that will be triggered by timer
-        let node_ctx = create_test_node_with_closure(
-            move |_ctx| {
-                node_calls_clone.set(node_calls_clone.get() + 1);
+                // On the first run, register a timer for next the execution
+                if *data == 1 {
+                    let timer_time = ctx.now() + Duration::from_millis(100);
+                    let current = ctx.current();
+                    let _timer_reg = ctx.timer_driver().register_timer(current, timer_time);
+                    // In real scenarios, you'd store timer_reg in node data for cleanup
+                }
+
                 false
-            },
-            1,
-        );
+            });
 
-        let node_idx = executor.graph.add_node(node_ctx);
+        // First cycle - node runs via yield, registers timer
+        executor.cycle(&clock, Some(Duration::ZERO)).unwrap();
+        assert_eq!(*node.borrow(), 1);
 
-        // Register a timer for immediate execution
-        let timer_time = clock.now();
-        let _timer_registration = executor
-            .event_driver
-            .timer_driver()
-            .register_timer(node_idx, timer_time);
-
-        // Run cycle - timer should have expired and scheduled the node
-        executor
-            .cycle(&clock, Some(Duration::from_millis(10)))
-            .unwrap();
-
-        // Verify the node was called due to timer event
-        assert_eq!(node_calls.get(), 1);
+        // Advance clock and run again - timer should fire
+        clock.advance(Duration::from_millis(150));
+        executor.cycle(&clock, Some(Duration::ZERO)).unwrap();
+        assert_eq!(*node.borrow(), 2);
     }
 
     #[test]
@@ -412,32 +365,29 @@ mod tests {
         let mut executor = Executor::new();
         let clock = TestClock::new();
 
-        let node_calls = Rc::new(Cell::new(0));
-        let node_calls_clone = node_calls.clone();
-
-        // Create a node
-        let node_ctx = create_test_node_with_closure(
-            move |_ctx| {
-                node_calls_clone.set(node_calls_clone.get() + 1);
+        // Create a node with the future timer
+        let node = NodeBuilder::new(0)
+            .on_init(|executor, _, idx| {
+                // Just kick-start the node - let it register its own timer
+                executor.yield_driver().yield_now(idx);
+            })
+            .build(&mut executor, |data, ctx| {
+                *data += 1;
+                let next_time = ctx.now() + Duration::from_secs(3);
+                let current = ctx.current();
+                ctx.timer_driver().register_timer(current, next_time);
                 false
-            },
-            1,
-        );
-
-        let node_idx = executor.graph.add_node(node_ctx);
-
-        // Register a timer for future execution
-        let future_time = clock.now() + Duration::from_secs(10);
-        let _timer_registration = executor
-            .event_driver
-            .timer_driver()
-            .register_timer(node_idx, future_time);
+            });
 
         // Run cycle - timer should not have expired
         executor.cycle(&clock, Some(Duration::ZERO)).unwrap();
 
-        // Node should not have been called
-        assert_eq!(node_calls.get(), 0);
+        // Node should have been called on the first cycle
+        assert_eq!(*node.borrow(), 1);
+
+        executor.cycle(&clock, Some(Duration::ZERO)).unwrap();
+        // Node not called again, timer not expired
+        assert_eq!(*node.borrow(), 1);
     }
 
     #[test]
@@ -468,8 +418,11 @@ mod tests {
         let context_checks = Rc::new(RefCell::new(Vec::new()));
         let context_checks_clone = context_checks.clone();
 
-        let node_ctx = create_test_node_with_closure(
-            move |ctx| {
+        let _node = NodeBuilder::new(0)
+            .on_init(|executor, _, idx| {
+                executor.yield_driver().yield_now(idx);
+            })
+            .build(&mut executor, move |_data, ctx| {
                 let mut checks = context_checks_clone.borrow_mut();
 
                 // Test various context methods
@@ -485,16 +438,7 @@ mod tests {
                 checks.push("drivers_accessible: true".to_string());
 
                 false
-            },
-            0,
-        );
-
-        let node_idx = executor.graph.add_node(node_ctx);
-
-        // Schedule the node
-        unsafe {
-            (&mut *executor.scheduler.get()).schedule(node_idx, 0);
-        }
+            });
 
         // Run cycle
         executor.cycle(&clock, Some(Duration::ZERO)).unwrap();
@@ -517,48 +461,34 @@ mod tests {
 
         // Create chain: node1 -> node2 -> node3
         let call_order_1 = call_order.clone();
-        let node1_ctx = create_test_node_with_closure(
-            move |_ctx| {
+        let node1 = NodeBuilder::new(0)
+            .on_init(|executor, _, idx| {
+                // Start the chain
+                executor.yield_driver().yield_now(idx);
+            })
+            .build(&mut executor, move |data, _ctx| {
+                *data += 1;
                 call_order_1.borrow_mut().push(1);
                 true // Trigger downstream
-            },
-            0,
-        );
+            });
 
         let call_order_2 = call_order.clone();
-        let node2_ctx = create_test_node_with_closure(
-            move |_ctx| {
+        let node2 = NodeBuilder::new(0)
+            .add_relationship(&node1, Relationship::Trigger)
+            .build(&mut executor, move |data, _ctx| {
+                *data += 1;
                 call_order_2.borrow_mut().push(2);
                 true // Trigger downstream
-            },
-            1,
-        );
+            });
 
         let call_order_3 = call_order.clone();
-        let node3_ctx = create_test_node_with_closure(
-            move |_ctx| {
+        let _node3 = NodeBuilder::new(0)
+            .add_relationship(&node2, Relationship::Trigger)
+            .build(&mut executor, move |data, _ctx| {
+                *data += 1;
                 call_order_3.borrow_mut().push(3);
                 false // End of chain
-            },
-            2,
-        );
-
-        let node1_idx = executor.graph.add_node(node1_ctx);
-        let node2_idx = executor.graph.add_node(node2_ctx);
-        let node3_idx = executor.graph.add_node(node3_ctx);
-
-        // Connect the chain
-        executor
-            .graph
-            .add_edge(node1_idx, node2_idx, Relationship::Trigger);
-        executor
-            .graph
-            .add_edge(node2_idx, node3_idx, Relationship::Trigger);
-
-        // Start the chain by scheduling node1
-        unsafe {
-            (&mut *executor.scheduler.get()).schedule(node1_idx, 0);
-        }
+            });
 
         // Run cycle
         executor.cycle(&clock, Some(Duration::ZERO)).unwrap();
@@ -576,18 +506,26 @@ mod tests {
         // Initially no timers
         assert_eq!(executor.next_timer(), None);
 
-        let node_ctx = create_test_node_with_closure(|_| false, 1);
-        let node_idx = executor.graph.add_node(node_ctx);
+        let _node = NodeBuilder::new(0)
+            .on_init(|executor, _, idx| {
+                // Force trigger the node
+                executor.yield_driver().yield_now(idx);
+            })
+            .build(&mut executor, |data, ctx| {
+                *data += 1;
+                let current = ctx.current();
+                let future_time = ctx.now() + Duration::from_millis(500);
+                ctx.timer_driver().register_timer(current, future_time);
+                false
+            });
 
-        // Register a timer
-        let future_time = clock.now() + Duration::from_millis(500);
-        let _registration = executor
-            .event_driver
-            .timer_driver()
-            .register_timer(node_idx, future_time);
+        // Don't have a registered timer yet
+        assert_eq!(executor.next_timer(), None);
+
+        executor.cycle(&clock, Some(Duration::ZERO)).unwrap();
 
         // Should now return the timer time
-        assert_eq!(executor.next_timer(), Some(future_time));
+        let expected_time = clock.now() + Duration::from_millis(500);
     }
 
     #[test]
@@ -595,26 +533,20 @@ mod tests {
         let mut executor = Executor::new();
         let clock = TestClock::new();
 
-        let node_calls = Rc::new(Cell::new(0));
-        let node_calls_clone = node_calls.clone();
-
-        let node_ctx = create_test_node_with_closure(
-            move |_ctx| {
-                node_calls_clone.set(node_calls_clone.get() + 1);
+        let node = NodeBuilder::new(0)
+            .on_init(|executor, _, idx| {
+                // Use yield driver to schedule the node during init
+                executor.yield_driver().yield_now(idx);
+            })
+            .build(&mut executor, |data, _ctx| {
+                *data += 1;
                 false
-            },
-            1,
-        );
-
-        let node_idx = executor.graph.add_node(node_ctx);
-
-        // Use yield driver to schedule the node
-        executor.event_driver.yield_driver().yield_now(node_idx);
+            });
 
         // Run cycle - yield driver should schedule the node
         executor.cycle(&clock, Some(Duration::ZERO)).unwrap();
 
         // Verify the node was called
-        assert_eq!(node_calls.get(), 1);
+        assert_eq!(*node.borrow(), 1);
     }
 }

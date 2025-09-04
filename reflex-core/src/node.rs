@@ -21,6 +21,11 @@ impl<T: 'static> Node<T> {
     }
 
     #[inline(always)]
+    pub fn name(&self) -> Option<&str> {
+        self.get().name.as_deref()
+    }
+
+    #[inline(always)]
     pub fn borrow(&self) -> &T {
         &self.get().data
     }
@@ -32,17 +37,12 @@ impl<T: 'static> Node<T> {
 
     #[inline(always)]
     fn get(&self) -> &NodeInner<T> {
-        unsafe { self.0.get().as_ref().unwrap_unchecked() }
+        unsafe { &*self.0.get() }
     }
 
     #[inline(always)]
     fn get_mut(&self) -> &mut NodeInner<T> {
-        unsafe { self.0.get().as_mut().unwrap_unchecked() }
-    }
-
-    #[inline(always)]
-    pub(crate) fn name(&self) -> Option<&str> {
-        self.get().name.as_deref()
+        unsafe { &mut *self.0.get() }
     }
 
     #[inline(always)]
