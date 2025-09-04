@@ -4,14 +4,14 @@ use std::io;
 
 use crate::graph::Graph;
 use crate::scheduler::Scheduler;
-pub use mio::Interest;
+pub use mio::{Interest, event::Source};
 
-pub struct IoSource<S: mio::event::Source> {
+pub struct IoSource<S: Source> {
     source: S,
     token: mio::Token,
 }
 
-impl<S: mio::event::Source> IoSource<S> {
+impl<S: Source> IoSource<S> {
     const fn new(source: S, token: mio::Token) -> Self {
         IoSource { source, token }
     }
@@ -70,7 +70,7 @@ impl IoDriver {
     }
 
     #[inline(always)]
-    pub fn register_source<S: mio::event::Source>(
+    pub fn register_source<S: Source>(
         &mut self,
         mut source: S,
         idx: NodeIndex,
@@ -86,23 +86,23 @@ impl IoDriver {
     }
 
     #[inline(always)]
-    pub fn deregister_source<S: mio::event::Source>(
+    pub fn deregister_source<S: Source>(
         &mut self,
-        mut handle: IoSource<S>,
+        mut source: IoSource<S>,
     ) -> io::Result<NodeIndex> {
-        self.poller.registry().deregister(&mut handle.source)?;
-        Ok(self.indices.remove(handle.token.0))
+        self.poller.registry().deregister(&mut source.source)?;
+        Ok(self.indices.remove(source.token.0))
     }
 
     #[inline(always)]
-    pub fn reregister_source<S: mio::event::Source>(
+    pub fn reregister_source<S: Source>(
         &mut self,
-        handle: &mut IoSource<S>,
+        source: &mut IoSource<S>,
         interest: Interest,
     ) -> io::Result<()> {
         self.poller
             .registry()
-            .reregister(&mut handle.source, handle.token, interest)
+            .reregister(&mut source.source, source.token, interest)
     }
 
     #[inline(always)]

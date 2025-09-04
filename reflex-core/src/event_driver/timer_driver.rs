@@ -40,8 +40,8 @@ impl TimerDriver {
     }
 
     #[inline(always)]
-    pub fn deregister_timer(&mut self, registration: TimerSource) {
-        self.timers.remove(&registration);
+    pub fn deregister_timer(&mut self, source: TimerSource) {
+        self.timers.remove(&source);
     }
 
     #[inline(always)]

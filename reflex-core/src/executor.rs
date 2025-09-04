@@ -4,6 +4,7 @@ use crate::graph::Graph;
 use crate::node::Node;
 use crate::prelude::{Scheduler, YieldDriver};
 use mio::Interest;
+use mio::event::Source;
 use petgraph::graph::NodeIndex;
 use std::cell::UnsafeCell;
 use std::io;
@@ -40,9 +41,9 @@ impl<'a> ExecutionContext<'a> {
     }
 
     #[inline(always)]
-    pub fn register_io<S: mio::event::Source>(
+    pub fn register_io<S: Source>(
         &mut self,
-        mut source: S,
+        source: S,
         idx: NodeIndex,
         interest: Interest,
     ) -> io::Result<IoSource<S>> {
@@ -52,15 +53,12 @@ impl<'a> ExecutionContext<'a> {
     }
 
     #[inline(always)]
-    pub fn deregister_io<S: mio::event::Source>(
-        &mut self,
-        mut source: IoSource<S>,
-    ) -> io::Result<NodeIndex> {
+    pub fn deregister_io<S: Source>(&mut self, source: IoSource<S>) -> io::Result<NodeIndex> {
         self.event_driver.io_driver().deregister_source(source)
     }
 
     #[inline(always)]
-    pub fn reregister_io<S: mio::event::Source>(
+    pub fn reregister_io<S: Source>(
         &mut self,
         handle: &mut IoSource<S>,
         interest: Interest,
