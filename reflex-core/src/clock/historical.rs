@@ -106,8 +106,11 @@ impl HistoricalClock {
     }
 
     /// Advance to the next time step
-    fn advance(&mut self) {
+    fn try_advance(&mut self) {
         if self.exhausted {
+            return;
+        } else if self.current_time == self.interval.end {
+            self.exhausted = true;
             return;
         }
 
@@ -115,7 +118,7 @@ impl HistoricalClock {
 
         // Check if we would go past the end of the interval
         if next_time >= self.interval.end {
-            self.exhausted = true;
+            self.current_time = self.interval.end;
         } else {
             self.current_time = next_time;
         }
@@ -127,7 +130,7 @@ impl Clock for HistoricalClock {
         let result = TriggerTime::new(self.current_instant(), self.current_time);
 
         // Advance for next call (unless already exhausted)
-        self.advance();
+        self.try_advance();
 
         result
     }
@@ -276,8 +279,12 @@ mod tests {
         assert_eq!(time2.system_time, start + Duration::from_micros(100));
 
         let time3 = clock.trigger_time(); // 200μs
-        assert!(clock.is_exhausted()); // Next step would be 300μs which >= 250μs end
+        assert!(!clock.is_exhausted()); // Next step is be 300μs which >= 250μs, so return end time
         assert_eq!(time3.system_time, start + Duration::from_micros(200));
+
+        let time3 = clock.trigger_time();
+        assert!(clock.is_exhausted()); // Should be exhausted now
+        assert_eq!(time3.system_time, start + Duration::from_micros(250)); // End time
     }
 
     #[test]
@@ -290,11 +297,15 @@ mod tests {
         let mut clock = HistoricalClock::with_time_step(interval, step);
 
         let time1 = clock.trigger_time();
-        assert!(clock.is_exhausted());
+        assert!(!clock.is_exhausted());
 
         // Further calls shouldn't change anything
         let time2 = clock.trigger_time();
-        assert_eq!(time1.system_time, time2.system_time);
-        assert_eq!(time1.instant, time2.instant);
+        assert_ne!(time1.system_time, time2.system_time);
+        assert_ne!(time1.instant, time2.instant);
+
+        let time3 = clock.trigger_time();
+        assert_eq!(time2.system_time, time3.system_time);
+        assert_eq!(time2.instant, time3.instant);
     }
 }

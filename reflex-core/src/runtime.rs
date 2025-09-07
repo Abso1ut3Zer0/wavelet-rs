@@ -1,4 +1,4 @@
-use crate::clock::{Clock, PrecisionClock, TestClock};
+use crate::clock::{Clock, HistoricalClock, PrecisionClock, TestClock};
 use crate::executor::Executor;
 use std::time::Duration;
 
@@ -73,6 +73,12 @@ where
         loop {
             self.cycle_once();
         }
+    }
+}
+
+impl<M: ExecutionMode> Runtime<HistoricalClock, M> {
+    pub fn run_until_completion(mut self) {
+        todo!()
     }
 }
 
