@@ -161,13 +161,14 @@ impl Executor {
         self.event_driver.timer_driver().next_timer()
     }
 
-    pub fn cycle(&mut self, clock: &impl Clock, timeout: Option<Duration>) -> io::Result<()> {
+    pub fn cycle(
+        &mut self,
+        now: Instant,
+        trigger_time: OffsetDateTime,
+        timeout: Option<Duration>,
+    ) -> io::Result<()> {
         // Increment executor epoch
         self.epoch = self.epoch.wrapping_add(1);
-
-        // Snap clock times
-        let now = clock.now();
-        let trigger_time = clock.trigger_time();
 
         // Poll for external events
         self.event_driver.poll(
@@ -212,9 +213,9 @@ impl Executor {
 mod tests {
     use super::*;
     use crate::clock::TestClock;
-    use crate::graph::{NodeContext, Relationship};
+    use crate::graph::Relationship;
     use crate::node::NodeBuilder;
-    use std::cell::{Cell, RefCell};
+    use std::cell::RefCell;
     use std::rc::Rc;
 
     #[test]
@@ -241,13 +242,21 @@ mod tests {
             });
 
         // Run a cycle
-        executor.cycle(&clock, Some(Duration::ZERO)).unwrap();
+        let now = clock.now();
+        let trigger_time = clock.trigger_time();
+        executor
+            .cycle(now, trigger_time, Some(Duration::ZERO))
+            .unwrap();
 
         // Verify the node was called
         assert_eq!(*node.borrow(), 1);
         assert_eq!(executor.epoch, 1);
 
-        executor.cycle(&clock, Some(Duration::ZERO)).unwrap();
+        let now = clock.now();
+        let trigger_time = clock.trigger_time();
+        executor
+            .cycle(now, trigger_time, Some(Duration::ZERO))
+            .unwrap();
 
         // Verify the node was called a second time
         assert_eq!(*node.borrow(), 2);
@@ -279,7 +288,11 @@ mod tests {
             });
 
         // Run cycle
-        executor.cycle(&clock, Some(Duration::ZERO)).unwrap();
+        let now = clock.now();
+        let trigger_time = clock.trigger_time();
+        executor
+            .cycle(now, trigger_time, Some(Duration::ZERO))
+            .unwrap();
 
         // Both parent and child should have been called
         assert_eq!(*parent_node.borrow(), 1);
@@ -311,7 +324,11 @@ mod tests {
             });
 
         // Run cycle
-        executor.cycle(&clock, Some(Duration::ZERO)).unwrap();
+        let now = clock.now();
+        let trigger_time = clock.trigger_time();
+        executor
+            .cycle(now, trigger_time, Some(Duration::ZERO))
+            .unwrap();
 
         // Only parent should have been called, child should not
         assert_eq!(*parent_node.borrow(), 1);
@@ -334,8 +351,10 @@ mod tests {
         notifier.notify().unwrap();
 
         // Run cycle - this should pick up the I/O event and schedule the node
+        let now = clock.now();
+        let trigger_time = clock.trigger_time();
         executor
-            .cycle(&clock, Some(Duration::from_millis(10)))
+            .cycle(now, trigger_time, Some(Duration::from_millis(10)))
             .unwrap();
 
         // Verify the node was called due to an I/O event
@@ -367,12 +386,20 @@ mod tests {
             });
 
         // First cycle - node runs via yield, registers timer
-        executor.cycle(&clock, Some(Duration::ZERO)).unwrap();
+        let now = clock.now();
+        let trigger_time = clock.trigger_time();
+        executor
+            .cycle(now, trigger_time, Some(Duration::ZERO))
+            .unwrap();
         assert_eq!(*node.borrow(), 1);
 
         // Advance clock and run again - timer should fire
         clock.advance(Duration::from_millis(150));
-        executor.cycle(&clock, Some(Duration::ZERO)).unwrap();
+        let now = clock.now();
+        let trigger_time = clock.trigger_time();
+        executor
+            .cycle(now, trigger_time, Some(Duration::ZERO))
+            .unwrap();
         assert_eq!(*node.borrow(), 2);
     }
 
@@ -395,12 +422,20 @@ mod tests {
             });
 
         // Run cycle - timer should not have expired
-        executor.cycle(&clock, Some(Duration::ZERO)).unwrap();
+        let now = clock.now();
+        let trigger_time = clock.trigger_time();
+        executor
+            .cycle(now, trigger_time, Some(Duration::ZERO))
+            .unwrap();
 
         // Node should have been called on the first cycle
         assert_eq!(*node.borrow(), 1);
 
-        executor.cycle(&clock, Some(Duration::ZERO)).unwrap();
+        let now = clock.now();
+        let trigger_time = clock.trigger_time();
+        executor
+            .cycle(now, trigger_time, Some(Duration::ZERO))
+            .unwrap();
         // Node is not called again, timer not expired
         assert_eq!(*node.borrow(), 1);
     }
@@ -413,15 +448,27 @@ mod tests {
         assert_eq!(executor.epoch, 0);
 
         // Run the first cycle
-        executor.cycle(&clock, Some(Duration::ZERO)).unwrap();
+        let now = clock.now();
+        let trigger_time = clock.trigger_time();
+        executor
+            .cycle(now, trigger_time, Some(Duration::ZERO))
+            .unwrap();
         assert_eq!(executor.epoch, 1);
 
         // Run the second cycle
-        executor.cycle(&clock, Some(Duration::ZERO)).unwrap();
+        let now = clock.now();
+        let trigger_time = clock.trigger_time();
+        executor
+            .cycle(now, trigger_time, Some(Duration::ZERO))
+            .unwrap();
         assert_eq!(executor.epoch, 2);
 
         // Run the third cycle
-        executor.cycle(&clock, Some(Duration::ZERO)).unwrap();
+        let now = clock.now();
+        let trigger_time = clock.trigger_time();
+        executor
+            .cycle(now, trigger_time, Some(Duration::ZERO))
+            .unwrap();
         assert_eq!(executor.epoch, 3);
     }
 
@@ -464,7 +511,11 @@ mod tests {
             });
 
         // Run cycle
-        executor.cycle(&clock, Some(Duration::ZERO)).unwrap();
+        let now = clock.now();
+        let trigger_time = clock.trigger_time();
+        executor
+            .cycle(now, trigger_time, Some(Duration::ZERO))
+            .unwrap();
 
         // All nodes should have been called in order
         let order = call_order.borrow();
@@ -494,7 +545,11 @@ mod tests {
         // Don't have a registered timer yet
         assert_eq!(executor.next_timer(), None);
 
-        executor.cycle(&clock, Some(Duration::ZERO)).unwrap();
+        let now = clock.now();
+        let trigger_time = clock.trigger_time();
+        executor
+            .cycle(now, trigger_time, Some(Duration::ZERO))
+            .unwrap();
 
         // Should now return the timer time
         let expected_time = clock.now() + Duration::from_millis(500);
@@ -516,7 +571,11 @@ mod tests {
             });
 
         // Run cycle - the yield driver should schedule the node
-        executor.cycle(&clock, Some(Duration::ZERO)).unwrap();
+        let now = clock.now();
+        let trigger_time = clock.trigger_time();
+        executor
+            .cycle(now, trigger_time, Some(Duration::ZERO))
+            .unwrap();
 
         // Verify the node was called
         assert_eq!(*node.borrow(), 1);

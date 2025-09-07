@@ -59,8 +59,8 @@ impl IoDriver {
     pub fn register_notifier(&mut self, idx: NodeIndex) -> Result<Notifier, io::Error> {
         let entry = self.indices.vacant_entry();
         let token = mio::Token(entry.key());
-        entry.insert(idx);
         let waker = mio::Waker::new(self.poller.registry(), token)?;
+        entry.insert(idx);
         Ok(Notifier::new(waker, token))
     }
 
