@@ -1,8 +1,9 @@
 use crate::clock::TriggerTime;
+use crate::event_driver::YieldDriver;
 use crate::event_driver::{EventDriver, IoDriver, IoSource, TimerDriver, TimerSource};
 use crate::graph::Graph;
 use crate::node::Node;
-use crate::prelude::{Scheduler, YieldDriver};
+use crate::scheduler::Scheduler;
 use mio::Interest;
 use mio::event::Source;
 use petgraph::graph::NodeIndex;

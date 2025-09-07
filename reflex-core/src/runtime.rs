@@ -78,7 +78,11 @@ where
 
 impl<M: ExecutionMode> Runtime<HistoricalClock, M> {
     pub fn run_until_completion(mut self) {
-        todo!()
+        while !self.clock.is_exhausted() {
+            self.executor
+                .cycle(self.clock.trigger_time(), Some(Duration::ZERO))
+                .ok();
+        }
     }
 }
 
@@ -91,8 +95,9 @@ impl<M: ExecutionMode> Runtime<TestClock, M> {
 impl CycleOnce for Runtime<PrecisionClock, Spin> {
     #[inline(always)]
     fn cycle_once(&mut self) {
-        let now = self.clock.trigger_time();
-        self.executor.cycle(now, Some(Duration::ZERO)).ok();
+        self.executor
+            .cycle(self.clock.trigger_time(), Some(Duration::ZERO))
+            .ok();
     }
 }
 
@@ -123,7 +128,8 @@ impl CycleOnce for Runtime<PrecisionClock, Block> {
 impl<M: ExecutionMode> CycleOnce for Runtime<TestClock, M> {
     #[inline(always)]
     fn cycle_once(&mut self) {
-        let now = self.clock.trigger_time();
-        self.executor.cycle(now, Some(Duration::ZERO)).ok();
+        self.executor
+            .cycle(self.clock.trigger_time(), Some(Duration::ZERO))
+            .ok();
     }
 }

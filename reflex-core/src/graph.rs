@@ -91,7 +91,7 @@ mod tests {
     use crate::clock::TriggerTime;
     use crate::event_driver::EventDriver;
     use crate::executor::ExecutionContext;
-    use crate::prelude::Scheduler;
+    use crate::scheduler::Scheduler;
     use std::cell::{Cell, UnsafeCell};
     use std::rc::Rc;
     use std::time::Instant;
