@@ -58,7 +58,8 @@ impl HistoricalClock {
 
     /// Create a new historical clock with a custom time step
     pub fn with_time_step(interval: Interval, time_step: Duration) -> Self {
-        let baseline_instant = Instant::now(); // This represents interval.start
+        let duration_since_epoch = interval.start - OffsetDateTime::UNIX_EPOCH;
+        let baseline_instant = Instant::now() - duration_since_epoch;
 
         Self {
             current_time: interval.start,

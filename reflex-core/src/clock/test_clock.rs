@@ -84,10 +84,12 @@ struct TestClockInner {
 
 impl TestClockInner {
     fn new() -> Self {
-        // Start at Unix epoch for predictable testing
+        // Start at the Unix epoch for predictable testing
         let baseline_wall_time = OffsetDateTime::UNIX_EPOCH;
+        let duration_since_epoch = OffsetDateTime::now_utc() - baseline_wall_time;
+
         // Create a synthetic "instant zero"
-        let baseline_instant = Instant::now();
+        let baseline_instant = Instant::now() - duration_since_epoch;
 
         Self {
             baseline_wall_time,
@@ -97,7 +99,8 @@ impl TestClockInner {
     }
 
     fn starting_at(baseline_wall_time: OffsetDateTime) -> Self {
-        let baseline_instant = Instant::now();
+        let duration_since_epoch = baseline_wall_time - OffsetDateTime::UNIX_EPOCH;
+        let baseline_instant = Instant::now() - duration_since_epoch;
 
         Self {
             baseline_wall_time,
