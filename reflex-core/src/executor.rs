@@ -1,4 +1,4 @@
-use crate::clock::Clock;
+use crate::clock::TriggerTime;
 use crate::event_driver::{EventDriver, IoDriver, IoSource, TimerDriver, TimerSource};
 use crate::graph::Graph;
 use crate::node::Node;
@@ -17,8 +17,7 @@ pub struct ExecutionContext<'a> {
     event_driver: &'a mut EventDriver,
     scheduler: &'a UnsafeCell<Scheduler>,
     current: NodeIndex,
-    now: Instant,
-    trigger_time: OffsetDateTime,
+    time_snapshot: TriggerTime,
     epoch: usize,
 }
 
@@ -26,16 +25,14 @@ impl<'a> ExecutionContext<'a> {
     pub(crate) fn new(
         event_driver: &'a mut EventDriver,
         scheduler: &'a UnsafeCell<Scheduler>,
-        now: Instant,
-        trigger_time: OffsetDateTime,
+        time_snapshot: TriggerTime,
         epoch: usize,
     ) -> Self {
         Self {
             event_driver,
             scheduler,
             current: NodeIndex::new(0),
-            now,
-            trigger_time,
+            time_snapshot,
             epoch,
         }
     }
@@ -90,11 +87,11 @@ impl<'a> ExecutionContext<'a> {
     }
 
     pub const fn now(&self) -> Instant {
-        self.now
+        self.time_snapshot.instant
     }
 
     pub const fn trigger_time(&self) -> OffsetDateTime {
-        self.trigger_time
+        self.time_snapshot.system_time
     }
 
     const fn set_current(&mut self, node_index: NodeIndex) {
@@ -163,8 +160,7 @@ impl Executor {
 
     pub fn cycle(
         &mut self,
-        now: Instant,
-        trigger_time: OffsetDateTime,
+        time_snapshot: TriggerTime,
         timeout: Option<Duration>,
     ) -> io::Result<()> {
         // Increment executor epoch
@@ -175,7 +171,7 @@ impl Executor {
             &mut self.graph,
             unsafe { &mut *self.scheduler.get() },
             timeout,
-            now,
+            time_snapshot.instant,
             self.epoch,
         )?;
 
@@ -183,8 +179,7 @@ impl Executor {
         let mut ctx = ExecutionContext::new(
             &mut self.event_driver,
             &self.scheduler,
-            now,
-            trigger_time,
+            time_snapshot,
             self.epoch,
         );
 
@@ -212,7 +207,7 @@ impl Executor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::clock::TestClock;
+    use crate::clock::{Clock, TestClock};
     use crate::graph::Relationship;
     use crate::node::NodeBuilder;
     use std::cell::RefCell;
@@ -227,7 +222,7 @@ mod tests {
     #[test]
     fn test_basic_cycle_execution() {
         let mut executor = Executor::new();
-        let clock = TestClock::new();
+        let mut clock = TestClock::new();
 
         // Create a simple node that increments a counter
         let node = NodeBuilder::new(0)
@@ -242,21 +237,15 @@ mod tests {
             });
 
         // Run a cycle
-        let now = clock.now();
-        let trigger_time = clock.trigger_time();
-        executor
-            .cycle(now, trigger_time, Some(Duration::ZERO))
-            .unwrap();
+        let now = clock.trigger_time();
+        executor.cycle(now, Some(Duration::ZERO)).unwrap();
 
         // Verify the node was called
         assert_eq!(*node.borrow(), 1);
         assert_eq!(executor.epoch, 1);
 
-        let now = clock.now();
-        let trigger_time = clock.trigger_time();
-        executor
-            .cycle(now, trigger_time, Some(Duration::ZERO))
-            .unwrap();
+        let now = clock.trigger_time();
+        executor.cycle(now, Some(Duration::ZERO)).unwrap();
 
         // Verify the node was called a second time
         assert_eq!(*node.borrow(), 2);
@@ -266,7 +255,7 @@ mod tests {
     #[test]
     fn test_triggering_relationship() {
         let mut executor = Executor::new();
-        let clock = TestClock::new();
+        let mut clock = TestClock::new();
 
         // Create parent node that mutates (returns true)
         let parent_node = NodeBuilder::new(0)
@@ -288,11 +277,8 @@ mod tests {
             });
 
         // Run cycle
-        let now = clock.now();
-        let trigger_time = clock.trigger_time();
-        executor
-            .cycle(now, trigger_time, Some(Duration::ZERO))
-            .unwrap();
+        let now = clock.trigger_time();
+        executor.cycle(now, Some(Duration::ZERO)).unwrap();
 
         // Both parent and child should have been called
         assert_eq!(*parent_node.borrow(), 1);
@@ -302,7 +288,7 @@ mod tests {
     #[test]
     fn test_observe_relationship_does_not_trigger() {
         let mut executor = Executor::new();
-        let clock = TestClock::new();
+        let mut clock = TestClock::new();
 
         // Create parent node that mutates
         let parent_node = NodeBuilder::new(0)
@@ -324,11 +310,8 @@ mod tests {
             });
 
         // Run cycle
-        let now = clock.now();
-        let trigger_time = clock.trigger_time();
-        executor
-            .cycle(now, trigger_time, Some(Duration::ZERO))
-            .unwrap();
+        let now = clock.trigger_time();
+        executor.cycle(now, Some(Duration::ZERO)).unwrap();
 
         // Only parent should have been called, child should not
         assert_eq!(*parent_node.borrow(), 1);
@@ -338,7 +321,7 @@ mod tests {
     #[test]
     fn test_io_event_handling() {
         let mut executor = Executor::new();
-        let clock = TestClock::new();
+        let mut clock = TestClock::new();
 
         // Create a node that will be triggered by I/O
         let (node, notifier) = NodeBuilder::new(0)
@@ -351,10 +334,9 @@ mod tests {
         notifier.notify().unwrap();
 
         // Run cycle - this should pick up the I/O event and schedule the node
-        let now = clock.now();
-        let trigger_time = clock.trigger_time();
+        let now = clock.trigger_time();
         executor
-            .cycle(now, trigger_time, Some(Duration::from_millis(10)))
+            .cycle(now, Some(Duration::from_millis(10)))
             .unwrap();
 
         // Verify the node was called due to an I/O event
@@ -364,7 +346,7 @@ mod tests {
     #[test]
     fn test_timer_event_handling() {
         let mut executor = Executor::new();
-        let clock = TestClock::new();
+        let mut clock = TestClock::new();
 
         // Create a timer node that sets up its own recurring timer
         let node = NodeBuilder::new(0)
@@ -386,27 +368,21 @@ mod tests {
             });
 
         // First cycle - node runs via yield, registers timer
-        let now = clock.now();
-        let trigger_time = clock.trigger_time();
-        executor
-            .cycle(now, trigger_time, Some(Duration::ZERO))
-            .unwrap();
+        let now = clock.trigger_time();
+        executor.cycle(now, Some(Duration::ZERO)).unwrap();
         assert_eq!(*node.borrow(), 1);
 
         // Advance clock and run again - timer should fire
         clock.advance(Duration::from_millis(150));
-        let now = clock.now();
-        let trigger_time = clock.trigger_time();
-        executor
-            .cycle(now, trigger_time, Some(Duration::ZERO))
-            .unwrap();
+        let now = clock.trigger_time();
+        executor.cycle(now, Some(Duration::ZERO)).unwrap();
         assert_eq!(*node.borrow(), 2);
     }
 
     #[test]
     fn test_timer_not_expired_yet() {
         let mut executor = Executor::new();
-        let clock = TestClock::new();
+        let mut clock = TestClock::new();
 
         // Create a node with the future timer
         let node = NodeBuilder::new(0)
@@ -422,20 +398,14 @@ mod tests {
             });
 
         // Run cycle - timer should not have expired
-        let now = clock.now();
-        let trigger_time = clock.trigger_time();
-        executor
-            .cycle(now, trigger_time, Some(Duration::ZERO))
-            .unwrap();
+        let now = clock.trigger_time();
+        executor.cycle(now, Some(Duration::ZERO)).unwrap();
 
         // Node should have been called on the first cycle
         assert_eq!(*node.borrow(), 1);
 
-        let now = clock.now();
-        let trigger_time = clock.trigger_time();
-        executor
-            .cycle(now, trigger_time, Some(Duration::ZERO))
-            .unwrap();
+        let now = clock.trigger_time();
+        executor.cycle(now, Some(Duration::ZERO)).unwrap();
         // Node is not called again, timer not expired
         assert_eq!(*node.borrow(), 1);
     }
@@ -443,39 +413,30 @@ mod tests {
     #[test]
     fn test_multiple_cycles_increment_epoch() {
         let mut executor = Executor::new();
-        let clock = TestClock::new();
+        let mut clock = TestClock::new();
 
         assert_eq!(executor.epoch, 0);
 
         // Run the first cycle
-        let now = clock.now();
-        let trigger_time = clock.trigger_time();
-        executor
-            .cycle(now, trigger_time, Some(Duration::ZERO))
-            .unwrap();
+        let now = clock.trigger_time();
+        executor.cycle(now, Some(Duration::ZERO)).unwrap();
         assert_eq!(executor.epoch, 1);
 
         // Run the second cycle
-        let now = clock.now();
-        let trigger_time = clock.trigger_time();
-        executor
-            .cycle(now, trigger_time, Some(Duration::ZERO))
-            .unwrap();
+        let now = clock.trigger_time();
+        executor.cycle(now, Some(Duration::ZERO)).unwrap();
         assert_eq!(executor.epoch, 2);
 
         // Run the third cycle
-        let now = clock.now();
-        let trigger_time = clock.trigger_time();
-        executor
-            .cycle(now, trigger_time, Some(Duration::ZERO))
-            .unwrap();
+        let now = clock.trigger_time();
+        executor.cycle(now, Some(Duration::ZERO)).unwrap();
         assert_eq!(executor.epoch, 3);
     }
 
     #[test]
     fn test_chain_of_triggering_nodes() {
         let mut executor = Executor::new();
-        let clock = TestClock::new();
+        let mut clock = TestClock::new();
 
         let call_order = Rc::new(RefCell::new(Vec::new()));
 
@@ -511,11 +472,8 @@ mod tests {
             });
 
         // Run cycle
-        let now = clock.now();
-        let trigger_time = clock.trigger_time();
-        executor
-            .cycle(now, trigger_time, Some(Duration::ZERO))
-            .unwrap();
+        let now = clock.trigger_time();
+        executor.cycle(now, Some(Duration::ZERO)).unwrap();
 
         // All nodes should have been called in order
         let order = call_order.borrow();
@@ -525,7 +483,7 @@ mod tests {
     #[test]
     fn test_next_timer_tracking() {
         let mut executor = Executor::new();
-        let clock = TestClock::new();
+        let mut clock = TestClock::new();
 
         // Initially no timers
         assert_eq!(executor.next_timer(), None);
@@ -545,20 +503,17 @@ mod tests {
         // Don't have a registered timer yet
         assert_eq!(executor.next_timer(), None);
 
-        let now = clock.now();
-        let trigger_time = clock.trigger_time();
-        executor
-            .cycle(now, trigger_time, Some(Duration::ZERO))
-            .unwrap();
+        let now = clock.trigger_time();
+        executor.cycle(now, Some(Duration::ZERO)).unwrap();
 
         // Should now return the timer time
-        let expected_time = clock.now() + Duration::from_millis(500);
+        let expected_time = clock.trigger_time().instant + Duration::from_millis(500);
     }
 
     #[test]
     fn test_yield_driver_integration() {
         let mut executor = Executor::new();
-        let clock = TestClock::new();
+        let mut clock = TestClock::new();
 
         let node = NodeBuilder::new(0)
             .on_init(|executor, _, idx| {
@@ -571,11 +526,8 @@ mod tests {
             });
 
         // Run cycle - the yield driver should schedule the node
-        let now = clock.now();
-        let trigger_time = clock.trigger_time();
-        executor
-            .cycle(now, trigger_time, Some(Duration::ZERO))
-            .unwrap();
+        let now = clock.trigger_time();
+        executor.cycle(now, Some(Duration::ZERO)).unwrap();
 
         // Verify the node was called
         assert_eq!(*node.borrow(), 1);

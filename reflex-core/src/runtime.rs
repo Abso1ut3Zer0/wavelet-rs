@@ -85,47 +85,39 @@ impl<M: ExecutionMode> Runtime<TestClock, M> {
 impl CycleOnce for Runtime<PrecisionClock, Spin> {
     #[inline(always)]
     fn cycle_once(&mut self) {
-        let now = self.clock.now();
-        let trigger_time = self.clock.trigger_time();
-        self.executor
-            .cycle(now, trigger_time, Some(Duration::ZERO))
-            .ok();
+        let now = self.clock.trigger_time();
+        self.executor.cycle(now, Some(Duration::ZERO)).ok();
     }
 }
 
 impl CycleOnce for Runtime<PrecisionClock, Sleep> {
     #[inline(always)]
     fn cycle_once(&mut self) {
-        let now = self.clock.now();
-        let trigger_time = self.clock.trigger_time();
+        let now = self.clock.trigger_time();
         let duration = self
             .executor
             .next_timer()
-            .map(|when| (when.saturating_duration_since(now)).min(self.mode.0));
-        self.executor.cycle(now, trigger_time, duration).ok();
+            .map(|when| (when.saturating_duration_since(now.instant)).min(self.mode.0));
+        self.executor.cycle(now, duration).ok();
     }
 }
 
 impl CycleOnce for Runtime<PrecisionClock, Block> {
     #[inline(always)]
     fn cycle_once(&mut self) {
-        let now = self.clock.now();
-        let trigger_time = self.clock.trigger_time();
+        let now = self.clock.trigger_time();
         let duration = self.executor.next_timer().map(|when| {
-            when.saturating_duration_since(now)
+            when.saturating_duration_since(now.instant)
                 .max(MINIMUM_TIMER_PRECISION)
         });
-        self.executor.cycle(now, trigger_time, duration).ok();
+        self.executor.cycle(now, duration).ok();
     }
 }
 
 impl<M: ExecutionMode> CycleOnce for Runtime<TestClock, M> {
     #[inline(always)]
     fn cycle_once(&mut self) {
-        let now = self.clock.now();
-        let trigger_time = self.clock.trigger_time();
-        self.executor
-            .cycle(now, trigger_time, Some(Duration::ZERO))
-            .ok();
+        let now = self.clock.trigger_time();
+        self.executor.cycle(now, Some(Duration::ZERO)).ok();
     }
 }

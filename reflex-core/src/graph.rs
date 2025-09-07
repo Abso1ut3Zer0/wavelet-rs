@@ -88,6 +88,7 @@ impl Graph {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::clock::TriggerTime;
     use crate::event_driver::EventDriver;
     use crate::executor::ExecutionContext;
     use crate::prelude::Scheduler;
@@ -95,9 +96,6 @@ mod tests {
     use std::rc::Rc;
     use std::time::Instant;
     use time::OffsetDateTime;
-
-    // Mock ExecutionContext for testing
-    struct MockExecutionContext;
 
     fn create_test_node(call_count: Rc<Cell<i32>>, should_mutate: bool) -> NodeContext {
         NodeContext::new(
@@ -191,8 +189,10 @@ mod tests {
         let mut exec_ctx = ExecutionContext::new(
             &mut event_driver,
             &scheduler,
-            Instant::now(),
-            OffsetDateTime::now_utc(),
+            TriggerTime {
+                instant: Instant::now(),
+                system_time: OffsetDateTime::now_utc(),
+            },
             1,
         );
 
