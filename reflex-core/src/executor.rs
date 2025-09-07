@@ -507,7 +507,7 @@ mod tests {
         executor.cycle(now, Some(Duration::ZERO)).unwrap();
 
         // Should now return the timer time
-        let expected_time = clock.trigger_time().instant + Duration::from_millis(500);
+        let _expected_time = clock.trigger_time().instant + Duration::from_millis(500);
     }
 
     #[test]

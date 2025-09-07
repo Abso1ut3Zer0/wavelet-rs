@@ -339,7 +339,7 @@ mod tests {
 
     #[test]
     fn test_poll_respects_epoch_deduplication() -> io::Result<()> {
-        let mut driver = IoDriver::with_capacity(64);
+        let _driver = IoDriver::with_capacity(64);
         let mut graph = Graph::new();
         let mut scheduler = Scheduler::new();
         scheduler.resize(5);

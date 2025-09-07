@@ -12,7 +12,7 @@ impl ExecutionMode for Spin {}
 impl ExecutionMode for Sleep {}
 impl ExecutionMode for Block {}
 
-trait CycleOnce {
+pub trait CycleOnce {
     fn cycle_once(&mut self);
 }
 

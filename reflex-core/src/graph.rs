@@ -184,7 +184,7 @@ mod tests {
 
         // Create real components for ExecutionContext
         let mut event_driver = EventDriver::new();
-        let mut scheduler = UnsafeCell::new(Scheduler::new());
+        let scheduler = UnsafeCell::new(Scheduler::new());
 
         let mut exec_ctx = ExecutionContext::new(
             &mut event_driver,

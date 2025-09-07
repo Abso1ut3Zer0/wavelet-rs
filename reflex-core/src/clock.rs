@@ -1,8 +1,10 @@
+mod historical;
 mod precision_clock;
 mod test_clock;
 
 use std::time::Instant;
 
+pub use historical::HistoricalClock;
 pub use precision_clock::PrecisionClock;
 pub use test_clock::TestClock;
 pub use time::{Duration, OffsetDateTime};

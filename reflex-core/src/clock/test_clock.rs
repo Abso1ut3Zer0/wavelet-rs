@@ -76,8 +76,6 @@ impl Clone for TestClock {
 struct TestClockInner {
     /// The baseline wall time (default: Unix epoch)
     baseline_wall_time: OffsetDateTime,
-    /// Real instant when this clock was created (for offset calculation)
-    creation_instant: Instant,
     /// Synthetic baseline instant (creation_instant represents this time)
     baseline_instant: Instant,
     /// How much time has elapsed from the baseline
@@ -86,27 +84,23 @@ struct TestClockInner {
 
 impl TestClockInner {
     fn new() -> Self {
-        let creation_instant = Instant::now();
         // Start at Unix epoch for predictable testing
         let baseline_wall_time = OffsetDateTime::UNIX_EPOCH;
         // Create a synthetic "instant zero"
-        let baseline_instant = creation_instant;
+        let baseline_instant = Instant::now();
 
         Self {
             baseline_wall_time,
-            creation_instant,
             baseline_instant,
             elapsed: Duration::ZERO,
         }
     }
 
     fn starting_at(baseline_wall_time: OffsetDateTime) -> Self {
-        let creation_instant = Instant::now();
-        let baseline_instant = creation_instant;
+        let baseline_instant = Instant::now();
 
         Self {
             baseline_wall_time,
-            creation_instant,
             baseline_instant,
             elapsed: Duration::ZERO,
         }
