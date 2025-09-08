@@ -1,3 +1,4 @@
+use crate::Control;
 use crate::clock::TriggerTime;
 use crate::event_driver::YieldDriver;
 use crate::event_driver::{EventDriver, IoDriver, IoSource, TimerDriver, TimerSource};
@@ -163,7 +164,7 @@ impl Executor {
         &mut self,
         time_snapshot: TriggerTime,
         timeout: Option<Duration>,
-    ) -> io::Result<()> {
+    ) -> io::Result<bool> {
         // Increment executor epoch
         self.epoch = self.epoch.wrapping_add(1);
 
@@ -187,29 +188,37 @@ impl Executor {
         // Process nodes in the graph
         while let Some(node_idx) = unsafe { (&mut *self.scheduler.get()).pop() } {
             ctx.set_current(node_idx);
-            if self.graph.mutate(&mut ctx, node_idx) {
-                self.edge_buffer
-                    .extend(self.graph.triggering_edges(node_idx));
-                self.edge_buffer.drain(..).for_each(|child| {
-                    self.graph
-                        .can_schedule(child, self.epoch)
-                        .map(|depth| unsafe {
-                            (&mut *self.scheduler.get()).schedule(child, depth)
-                        });
-                })
+            match self.graph.cycle(&mut ctx, node_idx) {
+                Control::Broadcast => {
+                    self.edge_buffer
+                        .extend(self.graph.triggering_edges(node_idx));
+                    self.edge_buffer.drain(..).for_each(|child| {
+                        self.graph
+                            .can_schedule(child, self.epoch)
+                            .map(|depth| unsafe {
+                                (&mut *self.scheduler.get()).schedule(child, depth)
+                            });
+                    })
+                }
+                Control::Unchanged => {
+                    // do nothing
+                }
+                Control::Terminate => {
+                    return Ok(false); // inform the runtime that we should exit
+                }
             }
         }
 
         // TODO - can add in the garbage collector and node spawner to be run here
-        Ok(())
+        Ok(true)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Relationship;
     use crate::clock::{Clock, TestClock};
-    use crate::graph::Relationship;
     use crate::node::NodeBuilder;
     use std::cell::RefCell;
     use std::rc::Rc;
@@ -234,7 +243,7 @@ mod tests {
                 *data += 1;
                 let current = ctx.current();
                 ctx.yield_now(current);
-                false
+                Control::Unchanged
             });
 
         // Run a cycle
@@ -266,7 +275,7 @@ mod tests {
             })
             .build(&mut executor, |data, _ctx| {
                 *data += 1;
-                true // This should trigger the child
+                Control::Broadcast // This should trigger the child
             });
 
         // Create a child node that depends on parent
@@ -274,7 +283,7 @@ mod tests {
             .add_relationship(&parent_node, Relationship::Trigger)
             .build(&mut executor, |data, _ctx| {
                 *data += 1;
-                false
+                Control::Unchanged
             });
 
         // Run cycle
@@ -299,7 +308,7 @@ mod tests {
             })
             .build(&mut executor, |data, _ctx| {
                 *data += 1;
-                true // This would trigger if the relationship was Trigger
+                Control::Broadcast // This would trigger if the relationship was Trigger
             });
 
         // Create a child node with Observe relationship
@@ -307,7 +316,7 @@ mod tests {
             .add_relationship(&parent_node, Relationship::Observe)
             .build(&mut executor, |data, _ctx| {
                 *data += 1;
-                false
+                Control::Unchanged
             });
 
         // Run cycle
@@ -328,7 +337,7 @@ mod tests {
         let (node, notifier) = NodeBuilder::new(0)
             .build_with_notifier(&mut executor, |data, _ctx| {
                 *data += 1;
-                false
+                Control::Unchanged
             })
             .unwrap();
 
@@ -365,7 +374,7 @@ mod tests {
                     // In real scenarios, you'd store timer_reg in node data for cleanup
                 }
 
-                false
+                Control::Unchanged
             });
 
         // First cycle - node runs via yield, registers timer
@@ -395,7 +404,7 @@ mod tests {
                 *data += 1;
                 let next_time = ctx.now() + Duration::from_secs(3);
                 ctx.register_timer(ctx.current(), next_time);
-                false
+                Control::Unchanged
             });
 
         // Run cycle - timer should not have expired
@@ -451,7 +460,7 @@ mod tests {
             .build(&mut executor, move |data, _ctx| {
                 *data += 1;
                 call_order_1.borrow_mut().push(1);
-                true // Trigger downstream
+                Control::Broadcast // Trigger downstream
             });
 
         let call_order_2 = call_order.clone();
@@ -460,7 +469,7 @@ mod tests {
             .build(&mut executor, move |data, _ctx| {
                 *data += 1;
                 call_order_2.borrow_mut().push(2);
-                true // Trigger downstream
+                Control::Broadcast // Trigger downstream
             });
 
         let call_order_3 = call_order.clone();
@@ -469,7 +478,7 @@ mod tests {
             .build(&mut executor, move |data, _ctx| {
                 *data += 1;
                 call_order_3.borrow_mut().push(3);
-                false // End of the chain
+                Control::Unchanged // End of the chain
             });
 
         // Run cycle
@@ -498,7 +507,7 @@ mod tests {
                 *data += 1;
                 let future_time = ctx.now() + Duration::from_millis(500);
                 ctx.register_timer(ctx.current(), future_time);
-                false
+                Control::Unchanged
             });
 
         // Don't have a registered timer yet
@@ -523,7 +532,7 @@ mod tests {
             })
             .build(&mut executor, |data, _ctx| {
                 *data += 1;
-                false
+                Control::Unchanged
             });
 
         // Run cycle - the yield driver should schedule the node

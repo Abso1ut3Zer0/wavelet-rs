@@ -128,6 +128,7 @@ impl IoDriver {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Control;
     use crate::graph::NodeContext;
     use mio::net::TcpListener;
     use std::net::SocketAddr;
@@ -305,11 +306,11 @@ mod tests {
 
         // Add some nodes to the graph with different depths
         let node1_ctx = NodeContext::new(
-            Box::new(|_| false), // Dummy closure
-            1,                   // depth
+            Box::new(|_| Control::Unchanged), // Dummy closure
+            1,                                // depth
         );
         let node2_ctx = NodeContext::new(
-            Box::new(|_| false),
+            Box::new(|_| Control::Unchanged),
             3, // depth
         );
 
@@ -344,7 +345,7 @@ mod tests {
         let mut scheduler = Scheduler::new();
         scheduler.resize(5);
 
-        let node_ctx = NodeContext::new(Box::new(|_| false), 2);
+        let node_ctx = NodeContext::new(Box::new(|_| Control::Unchanged), 2);
         let node_idx = graph.add_node(node_ctx);
 
         // Mark this node as already scheduled in epoch 1
@@ -380,6 +381,7 @@ mod tests {
 #[cfg(test)]
 mod integration_tests {
     use super::*;
+    use crate::Control;
     use crate::graph::NodeContext;
     use std::io::Write;
     use std::net::{TcpListener, TcpStream};
@@ -399,7 +401,7 @@ mod integration_tests {
         let listener_addr = listener.local_addr()?;
 
         // Register the listener with the driver
-        let node_ctx = NodeContext::new(Box::new(|_| false), 1);
+        let node_ctx = NodeContext::new(Box::new(|_| Control::Unchanged), 1);
         let node_idx = graph.add_node(node_ctx);
 
         let _io_source = driver.register_source(listener, node_idx, Interest::READABLE)?;
@@ -468,8 +470,8 @@ mod integration_tests {
         let addr2 = listener2.local_addr()?;
 
         // Register both with different nodes
-        let node1_ctx = NodeContext::new(Box::new(|_| false), 1);
-        let node2_ctx = NodeContext::new(Box::new(|_| false), 2);
+        let node1_ctx = NodeContext::new(Box::new(|_| Control::Unchanged), 1);
+        let node2_ctx = NodeContext::new(Box::new(|_| Control::Unchanged), 2);
         let node1_idx = graph.add_node(node1_ctx);
         let node2_idx = graph.add_node(node2_ctx);
 
@@ -514,7 +516,7 @@ mod integration_tests {
         let mut scheduler = Scheduler::new();
         scheduler.resize(5);
 
-        let node_ctx = NodeContext::new(Box::new(|_| false), 1);
+        let node_ctx = NodeContext::new(Box::new(|_| Control::Unchanged), 1);
         let node_idx = graph.add_node(node_ctx);
 
         // Register a notifier

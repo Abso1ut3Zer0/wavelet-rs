@@ -1,33 +1,27 @@
 use crate::executor::ExecutionContext;
-use enum_as_inner::EnumAsInner;
+use crate::{Control, Relationship};
 use petgraph::prelude::{EdgeRef, NodeIndex};
 
-pub(crate) type MutateFn = Box<dyn FnMut(&mut ExecutionContext) -> bool + 'static>;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, EnumAsInner)]
-pub enum Relationship {
-    Trigger,
-    Observe,
-}
+pub(crate) type CycleFn = Box<dyn FnMut(&mut ExecutionContext) -> Control + 'static>;
 
 pub(crate) struct NodeContext {
-    pub(crate) mutate_fn: MutateFn,
+    pub(crate) cycle_fn: CycleFn,
     pub(crate) sched_epoch: usize,
     pub(crate) depth: u32,
 }
 
 impl NodeContext {
-    pub(crate) const fn new(mutate_fn: MutateFn, depth: u32) -> Self {
+    pub(crate) const fn new(cycle_fn: CycleFn, depth: u32) -> Self {
         Self {
-            mutate_fn,
+            cycle_fn,
             sched_epoch: 0,
             depth,
         }
     }
 
     #[inline(always)]
-    fn mutate(&mut self, ctx: &mut ExecutionContext) -> bool {
-        (self.mutate_fn)(ctx)
+    fn cycle(&mut self, ctx: &mut ExecutionContext) -> Control {
+        (self.cycle_fn)(ctx)
     }
 }
 
@@ -65,8 +59,8 @@ impl Graph {
     }
 
     #[inline(always)]
-    pub(crate) fn mutate(&mut self, ctx: &mut ExecutionContext, node_index: NodeIndex) -> bool {
-        self.inner[node_index].mutate(ctx)
+    pub(crate) fn cycle(&mut self, ctx: &mut ExecutionContext, node_index: NodeIndex) -> Control {
+        self.inner[node_index].cycle(ctx)
     }
 
     #[inline(always)]
@@ -101,7 +95,11 @@ mod tests {
         NodeContext::new(
             Box::new(move |mut _ctx: &mut ExecutionContext| {
                 call_count.set(call_count.get() + 1);
-                should_mutate
+                if should_mutate {
+                    Control::Broadcast
+                } else {
+                    Control::Unchanged
+                }
             }),
             1, // depth
         )
@@ -196,9 +194,9 @@ mod tests {
             1,
         );
 
-        let result = graph.mutate(&mut exec_ctx, node);
+        let result = graph.cycle(&mut exec_ctx, node);
 
-        assert_eq!(result, should_mutate);
+        assert_eq!(result, Control::Broadcast);
         assert_eq!(call_count.get(), 1); // Function should have been called once
     }
 

@@ -68,6 +68,7 @@ impl TimerDriver {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Control;
     use crate::graph::{Graph, NodeContext};
     use crate::scheduler::Scheduler;
     use std::time::{Duration, Instant};
@@ -137,7 +138,7 @@ mod tests {
         let mut scheduler = Scheduler::new();
         scheduler.resize(5);
 
-        let node_ctx = NodeContext::new(Box::new(|_| false), 1);
+        let node_ctx = NodeContext::new(Box::new(|_| Control::Unchanged), 1);
         let node_idx = graph.add_node(node_ctx);
 
         // Register a timer in the future
@@ -158,7 +159,7 @@ mod tests {
         let mut scheduler = Scheduler::new();
         scheduler.resize(5);
 
-        let node_ctx = NodeContext::new(Box::new(|_| false), 2);
+        let node_ctx = NodeContext::new(Box::new(|_| Control::Unchanged), 2);
         let node_idx = graph.add_node(node_ctx);
 
         // Register a timer in the past
@@ -181,9 +182,9 @@ mod tests {
         scheduler.resize(5);
 
         // Add multiple nodes
-        let node1_ctx = NodeContext::new(Box::new(|_| false), 1);
-        let node2_ctx = NodeContext::new(Box::new(|_| false), 3);
-        let node3_ctx = NodeContext::new(Box::new(|_| false), 2);
+        let node1_ctx = NodeContext::new(Box::new(|_| Control::Unchanged), 1);
+        let node2_ctx = NodeContext::new(Box::new(|_| Control::Unchanged), 3);
+        let node3_ctx = NodeContext::new(Box::new(|_| Control::Unchanged), 2);
         let node1_idx = graph.add_node(node1_ctx);
         let node2_idx = graph.add_node(node2_ctx);
         let node3_idx = graph.add_node(node3_ctx);
@@ -223,8 +224,8 @@ mod tests {
         let mut scheduler = Scheduler::new();
         scheduler.resize(5);
 
-        let node1_ctx = NodeContext::new(Box::new(|_| false), 1);
-        let node2_ctx = NodeContext::new(Box::new(|_| false), 1);
+        let node1_ctx = NodeContext::new(Box::new(|_| Control::Unchanged), 1);
+        let node2_ctx = NodeContext::new(Box::new(|_| Control::Unchanged), 1);
         let node1_idx = graph.add_node(node1_ctx);
         let node2_idx = graph.add_node(node2_ctx);
 

@@ -1,7 +1,7 @@
 use crate::event_driver::Notifier;
 use crate::executor::{ExecutionContext, Executor};
 use crate::graph::NodeContext;
-use crate::graph::Relationship;
+use crate::{Control, Relationship};
 use petgraph::prelude::NodeIndex;
 use std::cell::UnsafeCell;
 use std::io;
@@ -117,7 +117,7 @@ impl<T: 'static> NodeBuilder<T> {
 
     pub fn build<F>(self, executor: &mut Executor, mut cycle_fn: F) -> Node<T>
     where
-        F: FnMut(&mut T, &mut ExecutionContext) -> bool + 'static,
+        F: FnMut(&mut T, &mut ExecutionContext) -> Control + 'static,
     {
         let node = Node::uninitialized(self.data, self.name);
         let depth = self
@@ -157,7 +157,7 @@ impl<T: 'static> NodeBuilder<T> {
         cycle_fn: F,
     ) -> io::Result<(Node<T>, Notifier)>
     where
-        F: FnMut(&mut T, &mut ExecutionContext) -> bool + 'static,
+        F: FnMut(&mut T, &mut ExecutionContext) -> Control + 'static,
     {
         let node = self.build(executor, cycle_fn);
         let notifier = executor.io_driver().register_notifier(node.index())?;
