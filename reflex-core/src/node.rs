@@ -114,11 +114,11 @@ impl<T: 'static> NodeBuilder<T> {
         self
     }
 
-    pub fn add_trigger_relationship<P>(self, parent: &Node<P>) -> Self {
+    pub fn triggered_by<P>(self, parent: &Node<P>) -> Self {
         self.add_relationship(parent, Relationship::Trigger)
     }
 
-    pub fn add_observe_relationship<P>(self, parent: &Node<P>) -> Self {
+    pub fn observer_of<P>(self, parent: &Node<P>) -> Self {
         self.add_relationship(parent, Relationship::Observe)
     }
 
