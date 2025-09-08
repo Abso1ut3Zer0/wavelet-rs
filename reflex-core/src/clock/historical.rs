@@ -4,7 +4,7 @@ use time::OffsetDateTime;
 
 /// Represents a time interval with an inclusive start and exclusive end.
 ///
-/// The interval is [start, end) - includes start time but excludes end time.
+/// The interval is [start, end] - includes start time and end time.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Interval {
     pub start: OffsetDateTime,
@@ -25,7 +25,7 @@ impl Interval {
 
     /// Check if a given time falls within this interval [start, end)
     pub fn contains(&self, time: OffsetDateTime) -> bool {
-        time >= self.start && time < self.end
+        time >= self.start && time <= self.end
     }
 }
 
@@ -171,8 +171,8 @@ mod tests {
         // Middle is included
         assert!(interval.contains(start + Duration::from_secs(50)));
 
-        // End is excluded
-        assert!(!interval.contains(end));
+        // End is included
+        assert!(interval.contains(end));
 
         // Past end is excluded
         assert!(!interval.contains(end + Duration::from_secs(1)));
