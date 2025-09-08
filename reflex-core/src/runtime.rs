@@ -61,7 +61,6 @@ impl<C: Clock, M: ExecutionMode> RuntimeBuilder<C, M> {
             executor: Executor::new(),
             clock,
             mode,
-            halted: false,
         })
     }
 }
@@ -70,7 +69,6 @@ pub struct Runtime<C: Clock, M: ExecutionMode> {
     executor: Executor,
     clock: C,
     mode: M,
-    halted: bool,
 }
 
 impl<M: ExecutionMode> Runtime<PrecisionClock, M>

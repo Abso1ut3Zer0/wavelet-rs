@@ -549,4 +549,23 @@ mod tests {
         // Verify the node was called
         assert_eq!(*node.borrow(), 1);
     }
+
+    #[test]
+    fn test_termination_state() {
+        let mut executor = Executor::new();
+        let mut clock = TestClock::new();
+
+        let _node = NodeBuilder::new(0)
+            .on_init(|executor, _, idx| {
+                executor.yield_driver().yield_now(idx);
+            })
+            .build(&mut executor, |_, _ctx| Control::Terminate);
+
+        let now = clock.trigger_time();
+        let result = executor.cycle(now, Some(Duration::ZERO));
+        assert!(result.is_ok());
+
+        let state = result.unwrap();
+        assert!(state.is_terminated());
+    }
 }
