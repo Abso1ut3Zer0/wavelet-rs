@@ -5,6 +5,7 @@ use crate::event_driver::{EventDriver, IoDriver, IoSource, TimerDriver, TimerSou
 use crate::graph::Graph;
 use crate::node::Node;
 use crate::scheduler::Scheduler;
+use enum_as_inner::EnumAsInner;
 use mio::Interest;
 use mio::event::Source;
 use petgraph::graph::NodeIndex;
@@ -14,6 +15,12 @@ use std::time::{Duration, Instant};
 use time::OffsetDateTime;
 
 const BUFFER_CAPACITY: usize = 32;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, EnumAsInner)]
+pub enum ExecutorState {
+    Running,
+    Terminated,
+}
 
 pub struct ExecutionContext<'a> {
     event_driver: &'a mut EventDriver,
@@ -164,7 +171,7 @@ impl Executor {
         &mut self,
         time_snapshot: TriggerTime,
         timeout: Option<Duration>,
-    ) -> io::Result<bool> {
+    ) -> io::Result<ExecutorState> {
         // Increment executor epoch
         self.epoch = self.epoch.wrapping_add(1);
 
@@ -204,13 +211,13 @@ impl Executor {
                     // do nothing
                 }
                 Control::Terminate => {
-                    return Ok(false); // inform the runtime that we should exit
+                    return Ok(ExecutorState::Terminated); // inform the runtime that we should exit
                 }
             }
         }
 
         // TODO - can add in the garbage collector and node spawner to be run here
-        Ok(true)
+        Ok(ExecutorState::Running)
     }
 }
 

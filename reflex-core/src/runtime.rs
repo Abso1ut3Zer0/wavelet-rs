@@ -1,5 +1,5 @@
 use crate::clock::{Clock, HistoricalClock, PrecisionClock, TestClock};
-use crate::executor::Executor;
+use crate::executor::{Executor, ExecutorState};
 use std::time::Duration;
 
 const MINIMUM_TIMER_PRECISION: Duration = Duration::from_millis(1);
@@ -20,7 +20,7 @@ impl Sleep {
 }
 
 pub trait CycleOnce {
-    fn cycle_once(&mut self);
+    fn cycle_once(&mut self) -> ExecutorState;
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -61,6 +61,7 @@ impl<C: Clock, M: ExecutionMode> RuntimeBuilder<C, M> {
             executor: Executor::new(),
             clock,
             mode,
+            halted: false,
         })
     }
 }
@@ -69,6 +70,7 @@ pub struct Runtime<C: Clock, M: ExecutionMode> {
     executor: Executor,
     clock: C,
     mode: M,
+    halted: bool,
 }
 
 impl<M: ExecutionMode> Runtime<PrecisionClock, M>
@@ -76,9 +78,8 @@ where
     Self: CycleOnce,
 {
     pub fn run_forever(mut self) {
-        // TODO - add a way to stop the runtime
-        loop {
-            self.cycle_once();
+        while self.cycle_once().is_running() {
+            // continue
         }
     }
 }
@@ -86,57 +87,66 @@ where
 impl<M: ExecutionMode> Runtime<HistoricalClock, M> {
     pub fn run_until_completion(mut self) {
         while !self.clock.is_exhausted() {
-            self.executor
-                .cycle(self.clock.trigger_time(), Some(Duration::ZERO))
-                .ok();
+            let state = self
+                .executor
+                .cycle(self.clock.trigger_time(), None)
+                .unwrap_or(ExecutorState::Running);
+
+            if state.is_terminated() {
+                return;
+            }
         }
     }
 }
 
 impl<M: ExecutionMode> Runtime<TestClock, M> {
-    pub fn run_one_cycle(&mut self) {
-        self.cycle_once();
+    pub fn run_one_cycle(&mut self) -> ExecutorState {
+        self.cycle_once()
     }
 }
 
 impl CycleOnce for Runtime<PrecisionClock, Spin> {
     #[inline(always)]
-    fn cycle_once(&mut self) {
+    fn cycle_once(&mut self) -> ExecutorState {
         self.executor
             .cycle(self.clock.trigger_time(), Some(Duration::ZERO))
-            .ok();
+            .unwrap_or(ExecutorState::Running)
     }
 }
 
 impl CycleOnce for Runtime<PrecisionClock, Sleep> {
     #[inline(always)]
-    fn cycle_once(&mut self) {
+    fn cycle_once(&mut self) -> ExecutorState {
         let now = self.clock.trigger_time();
         let duration = self
             .executor
             .next_timer()
             .map(|when| (when.saturating_duration_since(now.instant)).min(self.mode.0));
-        self.executor.cycle(now, duration).ok();
+        self.executor
+            .cycle(now, duration)
+            .unwrap_or(ExecutorState::Running)
     }
 }
 
 impl CycleOnce for Runtime<PrecisionClock, Block> {
     #[inline(always)]
-    fn cycle_once(&mut self) {
+    fn cycle_once(&mut self) -> ExecutorState {
         let now = self.clock.trigger_time();
         let duration = self.executor.next_timer().map(|when| {
             when.saturating_duration_since(now.instant)
                 .max(MINIMUM_TIMER_PRECISION)
         });
-        self.executor.cycle(now, duration).ok();
+        self.executor
+            .cycle(now, duration)
+            .unwrap_or(ExecutorState::Running)
     }
 }
 
 impl<M: ExecutionMode> CycleOnce for Runtime<TestClock, M> {
     #[inline(always)]
-    fn cycle_once(&mut self) {
+    fn cycle_once(&mut self) -> ExecutorState {
         self.executor
             .cycle(self.clock.trigger_time(), Some(Duration::ZERO))
-            .ok();
+            .unwrap_or(ExecutorState::Running)
     }
 }
