@@ -10,7 +10,7 @@ use enum_as_inner::EnumAsInner;
 pub use petgraph::prelude::NodeIndex;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, EnumAsInner)]
-pub enum Relationship {
+pub(crate) enum Relationship {
     Trigger,
     Observe,
 }

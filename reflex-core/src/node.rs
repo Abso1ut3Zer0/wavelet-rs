@@ -114,10 +114,12 @@ impl<T: 'static> NodeBuilder<T> {
         self
     }
 
-    pub fn add_relationship<P>(mut self, parent: &Node<P>, relationship: Relationship) -> Self {
-        self.parents
-            .push((parent.index(), parent.depth(), relationship));
-        self
+    pub fn add_trigger_relationship<P>(self, parent: &Node<P>) -> Self {
+        self.add_relationship(parent, Relationship::Trigger)
+    }
+
+    pub fn add_observe_relationship<P>(self, parent: &Node<P>) -> Self {
+        self.add_relationship(parent, Relationship::Observe)
     }
 
     pub fn on_init<F>(mut self, on_init: F) -> Self
@@ -186,5 +188,16 @@ impl<T: 'static> NodeBuilder<T> {
         let node = self.build(executor, cycle_fn);
         let notifier = executor.io_driver().register_notifier(node.index())?;
         Ok((node, notifier))
+    }
+
+    #[inline]
+    pub(crate) fn add_relationship<P>(
+        mut self,
+        parent: &Node<P>,
+        relationship: Relationship,
+    ) -> Self {
+        self.parents
+            .push((parent.index(), parent.depth(), relationship));
+        self
     }
 }
