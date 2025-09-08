@@ -12,6 +12,13 @@ impl ExecutionMode for Spin {}
 impl ExecutionMode for Sleep {}
 impl ExecutionMode for Block {}
 
+impl Sleep {
+    pub fn new(duration: Duration) -> Self {
+        assert!(duration >= Duration::from_millis(1));
+        Self(duration)
+    }
+}
+
 pub trait CycleOnce {
     fn cycle_once(&mut self);
 }
