@@ -114,10 +114,19 @@ impl<T: 'static> NodeBuilder<T> {
         self
     }
 
+    #[inline]
+    pub fn add_relationship<P>(mut self, parent: &Node<P>, relationship: Relationship) -> Self {
+        self.parents
+            .push((parent.index(), parent.depth(), relationship));
+        self
+    }
+
+    #[inline]
     pub fn triggered_by<P>(self, parent: &Node<P>) -> Self {
         self.add_relationship(parent, Relationship::Trigger)
     }
 
+    #[inline]
     pub fn observer_of<P>(self, parent: &Node<P>) -> Self {
         self.add_relationship(parent, Relationship::Observe)
     }
@@ -135,6 +144,7 @@ impl<T: 'static> NodeBuilder<T> {
     where
         F: FnMut(&mut T) + 'static,
     {
+        assert!(self.on_drop.is_none(), "cannot set on_drop twice");
         self.on_drop = Some(Box::new(on_drop));
         self
     }
@@ -188,16 +198,5 @@ impl<T: 'static> NodeBuilder<T> {
         let node = self.build(executor, cycle_fn);
         let notifier = executor.io_driver().register_notifier(node.index())?;
         Ok((node, notifier))
-    }
-
-    #[inline]
-    pub(crate) fn add_relationship<P>(
-        mut self,
-        parent: &Node<P>,
-        relationship: Relationship,
-    ) -> Self {
-        self.parents
-            .push((parent.index(), parent.depth(), relationship));
-        self
     }
 }

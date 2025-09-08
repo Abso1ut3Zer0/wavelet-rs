@@ -10,12 +10,12 @@ use enum_as_inner::EnumAsInner;
 pub use petgraph::prelude::NodeIndex;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, EnumAsInner)]
-pub(crate) enum Relationship {
+pub enum Relationship {
     Trigger,
     Observe,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, EnumAsInner)]
 pub enum Control {
     Broadcast,
     Unchanged,
