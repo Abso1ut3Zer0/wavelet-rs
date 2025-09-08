@@ -7,6 +7,8 @@ use std::cell::UnsafeCell;
 use std::io;
 use std::rc::Rc;
 
+type OnDrop<T> = Box<dyn FnMut(&mut T) + 'static>;
+
 pub struct Node<T: 'static>(Rc<UnsafeCell<NodeInner<T>>>);
 
 impl<T: 'static> Node<T> {
@@ -15,6 +17,7 @@ impl<T: 'static> Node<T> {
             0: Rc::new(UnsafeCell::new(NodeInner {
                 data,
                 name,
+                on_drop: None,
                 index: NodeIndex::new(0),
                 mut_epoch: 0,
                 depth: 0,
@@ -73,9 +76,18 @@ impl<T: 'static> Clone for Node<T> {
 struct NodeInner<T: 'static> {
     data: T,
     name: Option<String>,
+    on_drop: Option<OnDrop<T>>,
     index: NodeIndex,
     mut_epoch: usize,
     depth: u32,
+}
+
+impl<T: 'static> Drop for NodeInner<T> {
+    fn drop(&mut self) {
+        self.on_drop
+            .take()
+            .map(|mut on_drop| (on_drop)(&mut self.data));
+    }
 }
 
 pub struct NodeBuilder<T: 'static> {
@@ -83,6 +95,7 @@ pub struct NodeBuilder<T: 'static> {
     name: Option<String>,
     parents: Vec<(NodeIndex, u32, Relationship)>,
     on_init: Option<Box<dyn FnMut(&mut Executor, &mut T, NodeIndex) + 'static>>,
+    on_drop: Option<OnDrop<T>>,
 }
 
 impl<T: 'static> NodeBuilder<T> {
@@ -92,6 +105,7 @@ impl<T: 'static> NodeBuilder<T> {
             name: None,
             parents: Vec::new(),
             on_init: None,
+            on_drop: None,
         }
     }
 
@@ -112,6 +126,14 @@ impl<T: 'static> NodeBuilder<T> {
     {
         assert!(self.on_init.is_none(), "cannot set on_init twice");
         self.on_init = Some(Box::new(on_init));
+        self
+    }
+
+    pub fn on_drop<F>(mut self, on_drop: F) -> Self
+    where
+        F: FnMut(&mut T) + 'static,
+    {
+        self.on_drop = Some(Box::new(on_drop));
         self
     }
 
@@ -146,6 +168,8 @@ impl<T: 'static> NodeBuilder<T> {
             if let Some(mut on_init) = self.on_init {
                 (on_init)(executor, &mut node.get_mut().data, idx)
             }
+
+            inner.on_drop = self.on_drop;
         }
 
         node

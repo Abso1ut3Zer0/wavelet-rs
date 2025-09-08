@@ -227,7 +227,7 @@ mod tests {
     use crate::Relationship;
     use crate::clock::{Clock, TestClock};
     use crate::node::NodeBuilder;
-    use std::cell::RefCell;
+    use std::cell::{Cell, RefCell};
     use std::rc::Rc;
 
     #[test]
@@ -567,5 +567,44 @@ mod tests {
 
         let state = result.unwrap();
         assert!(state.is_terminated());
+    }
+
+    #[test]
+    fn test_on_drop() {
+        let mut executor = Executor::new();
+        let flag = Rc::new(Cell::new(false));
+        let node = NodeBuilder::new(flag.clone())
+            .on_drop(|data| {
+                println!("setting flag to true");
+                data.set(true);
+                println!("flag is now {}", data.get());
+            })
+            .build(&mut executor, |_, _| Control::Unchanged);
+
+        let idx = node.index();
+        drop(node);
+        executor.graph.remove_node(idx);
+
+        println!("flag is {} after drop", flag.get());
+        assert!(flag.get());
+    }
+
+    #[test]
+    fn test_on_drop_executor_exit() {
+        let mut executor = Executor::new();
+        let flag = Rc::new(Cell::new(false));
+        let node = NodeBuilder::new(flag.clone())
+            .on_drop(|data| {
+                println!("setting flag to true");
+                data.set(true);
+                println!("flag is now {}", data.get());
+            })
+            .build(&mut executor, |_, _| Control::Unchanged);
+
+        drop(node);
+        drop(executor);
+
+        println!("flag is {} after drop", flag.get());
+        assert!(flag.get());
     }
 }

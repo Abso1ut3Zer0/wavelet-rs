@@ -77,6 +77,13 @@ impl Graph {
     ) {
         self.inner.add_edge(parent, child, relationship);
     }
+
+    // TODO - will use this later for dynamic graphs
+    #[allow(dead_code)]
+    #[inline(always)]
+    pub(crate) fn remove_node(&mut self, node_index: NodeIndex) {
+        self.inner.remove_node(node_index);
+    }
 }
 
 #[cfg(test)]
