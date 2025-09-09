@@ -1,11 +1,11 @@
 pub mod clock;
 pub mod event_driver;
 pub mod executor;
+mod garbage_collector;
 pub mod graph;
 pub mod node;
 pub mod runtime;
 pub mod scheduler;
-mod garbage_collector;
 
 use enum_as_inner::EnumAsInner;
 pub use petgraph::prelude::NodeIndex;
@@ -21,4 +21,5 @@ pub enum Control {
     Broadcast,
     Unchanged,
     Terminate,
+    Sweep,
 }

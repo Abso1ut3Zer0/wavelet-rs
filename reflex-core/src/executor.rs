@@ -26,7 +26,6 @@ pub enum ExecutorState {
 pub struct ExecutionContext<'a> {
     event_driver: &'a mut EventDriver,
     scheduler: &'a UnsafeCell<Scheduler>,
-    garbage_collector: GarbageCollector,
     current: NodeIndex,
     time_snapshot: TriggerTime,
     epoch: usize,
@@ -36,14 +35,12 @@ impl<'a> ExecutionContext<'a> {
     pub(crate) fn new(
         event_driver: &'a mut EventDriver,
         scheduler: &'a UnsafeCell<Scheduler>,
-        garbage_collector: GarbageCollector,
         time_snapshot: TriggerTime,
         epoch: usize,
     ) -> Self {
         Self {
             event_driver,
             scheduler,
-            garbage_collector,
             current: NodeIndex::new(0),
             time_snapshot,
             epoch,
@@ -117,11 +114,6 @@ impl<'a> ExecutionContext<'a> {
     }
 
     #[inline(always)]
-    pub fn mark_for_removal<T>(&self, node: &Node<T>) {
-        self.garbage_collector.mark_for_sweep(node.index())
-    }
-
-    #[inline(always)]
     pub fn has_mutated<T>(&self, parent: Node<T>) -> bool {
         parent.mut_epoch() == self.epoch
     }
@@ -136,8 +128,8 @@ pub struct Executor {
     /// Each step releases its mutable reference before the next begins.
     scheduler: UnsafeCell<Scheduler>,
     event_driver: EventDriver,
-    garbage_collector: GarbageCollector,
     edge_buffer: Vec<NodeIndex>,
+    gc: GarbageCollector,
     epoch: usize,
 }
 
@@ -147,8 +139,8 @@ impl Executor {
             graph: Graph::new(),
             scheduler: UnsafeCell::new(Scheduler::new()),
             event_driver: EventDriver::new(),
-            garbage_collector: GarbageCollector::new(),
             edge_buffer: Vec::with_capacity(BUFFER_CAPACITY),
+            gc: GarbageCollector::new(),
             epoch: 0,
         }
     }
@@ -171,6 +163,10 @@ impl Executor {
 
     pub(crate) const fn scheduler(&mut self) -> &mut Scheduler {
         unsafe { &mut *self.scheduler.get() }
+    }
+
+    pub(crate) fn garbage_collector(&mut self) -> GarbageCollector {
+        self.gc.clone()
     }
 
     #[inline(always)]
@@ -199,7 +195,6 @@ impl Executor {
         let mut ctx = ExecutionContext::new(
             &mut self.event_driver,
             &self.scheduler,
-            self.garbage_collector.clone(),
             time_snapshot,
             self.epoch,
         );
@@ -222,6 +217,9 @@ impl Executor {
                 Control::Unchanged => {
                     // do nothing
                 }
+                Control::Sweep => {
+                    self.gc.mark_for_sweep(node_idx);
+                }
                 Control::Terminate => {
                     return Ok(ExecutorState::Terminated); // inform the runtime that we should exit
                 }
@@ -229,7 +227,7 @@ impl Executor {
         }
 
         // TODO - can add in the garbage collector and node spawner to be run here
-        while let Some(marked_node) = self.garbage_collector.next_to_sweep() {
+        while let Some(marked_node) = self.gc.next_to_sweep() {
             self.graph.remove_node(marked_node);
         }
         Ok(ExecutorState::Running)
@@ -242,6 +240,7 @@ mod tests {
     use crate::Relationship;
     use crate::clock::{Clock, TestClock};
     use crate::node::NodeBuilder;
+    use petgraph::visit::NodeCount;
     use std::cell::{Cell, RefCell};
     use std::rc::Rc;
 
@@ -621,5 +620,50 @@ mod tests {
 
         println!("flag is {} after drop", flag.get());
         assert!(flag.get());
+    }
+
+    #[test]
+    fn test_garbage_collection() {
+        let mut executor = Executor::new();
+        let mut clock = TestClock::new();
+
+        let gc_count = Rc::new(Cell::new(0));
+        let node1 = NodeBuilder::new(gc_count.clone())
+            .on_init(|executor, _, idx| {
+                executor.yield_driver().yield_now(idx);
+            })
+            .on_drop(|data| {
+                println!("removing node1");
+                data.update(|count| count + 1);
+            })
+            .build(&mut executor, |_, _| Control::Broadcast);
+
+        let node2 = NodeBuilder::new(gc_count.clone())
+            .triggered_by(&node1)
+            .on_drop(|data| {
+                println!("removing node2");
+                data.update(|count| count + 1);
+            })
+            .build(&mut executor, move |_, _| {
+                println!("node1 data: {}", node1.borrow().get());
+                Control::Broadcast
+            });
+
+        let node3 = NodeBuilder::new(gc_count.clone())
+            .triggered_by(&node2)
+            .on_drop(|data| {
+                println!("removing node3");
+                data.update(|count| count + 1);
+            })
+            .build(&mut executor, move |_, _| {
+                println!("node2 data: {}", node2.borrow().get());
+                Control::Sweep
+            });
+
+        assert_eq!(executor.graph.node_count(), 3);
+        executor
+            .cycle(clock.trigger_time(), Some(Duration::ZERO))
+            .unwrap();
+        // assert_eq!(executor.graph.node_count(), 0);
     }
 }

@@ -1,5 +1,6 @@
 use crate::event_driver::Notifier;
 use crate::executor::{ExecutionContext, Executor};
+use crate::garbage_collector::GarbageCollector;
 use crate::graph::NodeContext;
 use crate::{Control, Relationship};
 use petgraph::prelude::NodeIndex;
@@ -12,12 +13,13 @@ type OnDrop<T> = Box<dyn FnMut(&mut T) + 'static>;
 pub struct Node<T: 'static>(Rc<UnsafeCell<NodeInner<T>>>);
 
 impl<T: 'static> Node<T> {
-    pub(crate) fn uninitialized(data: T, name: Option<String>) -> Self {
+    pub(crate) fn uninitialized(data: T, name: Option<String>, gc: GarbageCollector) -> Self {
         Self {
             0: Rc::new(UnsafeCell::new(NodeInner {
                 data,
                 name,
                 on_drop: None,
+                gc,
                 index: NodeIndex::new(0),
                 mut_epoch: 0,
                 depth: 0,
@@ -33,6 +35,11 @@ impl<T: 'static> Node<T> {
     #[inline(always)]
     pub fn downgrade(&self) -> WeakNode<T> {
         WeakNode(Rc::downgrade(&self.0))
+    }
+
+    #[inline(always)]
+    pub fn index(&self) -> NodeIndex {
+        self.get().index
     }
 
     #[inline(always)]
@@ -53,11 +60,6 @@ impl<T: 'static> Node<T> {
     #[inline(always)]
     fn get_mut(&self) -> &mut NodeInner<T> {
         unsafe { &mut *self.0.get() }
-    }
-
-    #[inline(always)]
-    pub(crate) fn index(&self) -> NodeIndex {
-        self.get().index
     }
 
     #[inline(always)]
@@ -91,6 +93,7 @@ struct NodeInner<T: 'static> {
     data: T,
     name: Option<String>,
     on_drop: Option<OnDrop<T>>,
+    gc: GarbageCollector,
     index: NodeIndex,
     mut_epoch: usize,
     depth: u32,
@@ -98,6 +101,7 @@ struct NodeInner<T: 'static> {
 
 impl<T: 'static> Drop for NodeInner<T> {
     fn drop(&mut self) {
+        self.gc.mark_for_sweep(self.index);
         self.on_drop
             .take()
             .map(|mut on_drop| (on_drop)(&mut self.data));
@@ -167,7 +171,7 @@ impl<T: 'static> NodeBuilder<T> {
     where
         F: FnMut(&mut T, &mut ExecutionContext) -> Control + 'static,
     {
-        let node = Node::uninitialized(self.data, self.name);
+        let node = Node::uninitialized(self.data, self.name, executor.garbage_collector());
         let depth = self
             .parents
             .iter()

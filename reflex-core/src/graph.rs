@@ -84,7 +84,10 @@ impl Graph {
         self.inner.remove_node(node_index);
     }
 
-    
+    #[allow(dead_code)]
+    pub(crate) fn node_count(&self) -> usize {
+        self.inner.node_count()
+    }
 }
 
 #[cfg(test)]
@@ -197,7 +200,6 @@ mod tests {
         let mut exec_ctx = ExecutionContext::new(
             &mut event_driver,
             &scheduler,
-            gc.clone(),
             TriggerTime {
                 instant: Instant::now(),
                 system_time: OffsetDateTime::now_utc(),

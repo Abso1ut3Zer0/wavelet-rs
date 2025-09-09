@@ -87,6 +87,9 @@ use std::rc::Rc;
 /// - Unexpected memory growth over time
 /// - Broken parent-child relationships in node traversals
 /// - Graph algorithms producing unexpected results
+///
+/// Please see the `test_garbage_collection` test for a simple
+/// example of how to use the GarbageCollector.
 /// ```
 #[derive(Debug, Clone)]
 pub struct GarbageCollector {
