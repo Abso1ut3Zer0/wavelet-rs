@@ -78,8 +78,6 @@ impl Graph {
         self.inner.add_edge(parent, child, relationship);
     }
 
-    // TODO - will use this later for dynamic graphs
-    #[allow(dead_code)]
     #[inline(always)]
     pub(crate) fn remove_node(&mut self, node_index: NodeIndex) {
         self.inner.remove_node(node_index);
@@ -92,6 +90,7 @@ mod tests {
     use crate::clock::TriggerTime;
     use crate::event_driver::EventDriver;
     use crate::executor::ExecutionContext;
+    use crate::garbage_collector::GarbageCollector;
     use crate::scheduler::Scheduler;
     use std::cell::{Cell, UnsafeCell};
     use std::rc::Rc;
@@ -190,10 +189,12 @@ mod tests {
         // Create real components for ExecutionContext
         let mut event_driver = EventDriver::new();
         let scheduler = UnsafeCell::new(Scheduler::new());
+        let gc = GarbageCollector::new();
 
         let mut exec_ctx = ExecutionContext::new(
             &mut event_driver,
             &scheduler,
+            gc.clone(),
             TriggerTime {
                 instant: Instant::now(),
                 system_time: OffsetDateTime::now_utc(),

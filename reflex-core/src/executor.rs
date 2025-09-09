@@ -2,6 +2,7 @@ use crate::Control;
 use crate::clock::TriggerTime;
 use crate::event_driver::YieldDriver;
 use crate::event_driver::{EventDriver, IoDriver, IoSource, TimerDriver, TimerSource};
+use crate::garbage_collector::GarbageCollector;
 use crate::graph::Graph;
 use crate::node::Node;
 use crate::scheduler::Scheduler;
@@ -25,6 +26,7 @@ pub enum ExecutorState {
 pub struct ExecutionContext<'a> {
     event_driver: &'a mut EventDriver,
     scheduler: &'a UnsafeCell<Scheduler>,
+    garbage_collector: GarbageCollector,
     current: NodeIndex,
     time_snapshot: TriggerTime,
     epoch: usize,
@@ -34,12 +36,14 @@ impl<'a> ExecutionContext<'a> {
     pub(crate) fn new(
         event_driver: &'a mut EventDriver,
         scheduler: &'a UnsafeCell<Scheduler>,
+        garbage_collector: GarbageCollector,
         time_snapshot: TriggerTime,
         epoch: usize,
     ) -> Self {
         Self {
             event_driver,
             scheduler,
+            garbage_collector,
             current: NodeIndex::new(0),
             time_snapshot,
             epoch,
@@ -113,6 +117,11 @@ impl<'a> ExecutionContext<'a> {
     }
 
     #[inline(always)]
+    pub fn mark_for_removal<T>(&self, node: &Node<T>) {
+        self.garbage_collector.mark_for_removal(node.index())
+    }
+
+    #[inline(always)]
     pub fn has_mutated<T>(&self, parent: Node<T>) -> bool {
         parent.mut_epoch() == self.epoch
     }
@@ -127,6 +136,7 @@ pub struct Executor {
     /// Each step releases its mutable reference before the next begins.
     scheduler: UnsafeCell<Scheduler>,
     event_driver: EventDriver,
+    garbage_collector: GarbageCollector,
     edge_buffer: Vec<NodeIndex>,
     epoch: usize,
 }
@@ -137,6 +147,7 @@ impl Executor {
             graph: Graph::new(),
             scheduler: UnsafeCell::new(Scheduler::new()),
             event_driver: EventDriver::new(),
+            garbage_collector: GarbageCollector::new(),
             edge_buffer: Vec::with_capacity(BUFFER_CAPACITY),
             epoch: 0,
         }
@@ -188,6 +199,7 @@ impl Executor {
         let mut ctx = ExecutionContext::new(
             &mut self.event_driver,
             &self.scheduler,
+            self.garbage_collector.clone(),
             time_snapshot,
             self.epoch,
         );
@@ -217,6 +229,9 @@ impl Executor {
         }
 
         // TODO - can add in the garbage collector and node spawner to be run here
+        while let Some(marked_node) = self.garbage_collector.next_node() {
+            self.graph.remove_node(marked_node);
+        }
         Ok(ExecutorState::Running)
     }
 }

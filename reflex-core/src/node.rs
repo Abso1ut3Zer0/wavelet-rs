@@ -5,7 +5,7 @@ use crate::{Control, Relationship};
 use petgraph::prelude::NodeIndex;
 use std::cell::UnsafeCell;
 use std::io;
-use std::rc::Rc;
+use std::rc::{Rc, Weak};
 
 type OnDrop<T> = Box<dyn FnMut(&mut T) + 'static>;
 
@@ -28,6 +28,11 @@ impl<T: 'static> Node<T> {
     #[inline(always)]
     pub fn name(&self) -> Option<&str> {
         self.get().name.as_deref()
+    }
+
+    #[inline(always)]
+    pub fn downgrade(&self) -> WeakNode<T> {
+        WeakNode(Rc::downgrade(&self.0))
     }
 
     #[inline(always)]
@@ -70,6 +75,15 @@ impl<T: 'static> Clone for Node<T> {
     #[inline(always)]
     fn clone(&self) -> Self {
         Self(self.0.clone())
+    }
+}
+
+pub struct WeakNode<T: 'static>(Weak<UnsafeCell<NodeInner<T>>>);
+
+impl<T: 'static> WeakNode<T> {
+    #[inline(always)]
+    pub fn upgrade(&self) -> Option<Node<T>> {
+        self.0.upgrade().map(|rc| Node(rc))
     }
 }
 

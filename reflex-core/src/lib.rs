@@ -5,6 +5,7 @@ pub mod graph;
 pub mod node;
 pub mod runtime;
 pub mod scheduler;
+mod garbage_collector;
 
 use enum_as_inner::EnumAsInner;
 pub use petgraph::prelude::NodeIndex;
