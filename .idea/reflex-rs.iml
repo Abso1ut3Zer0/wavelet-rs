@@ -3,9 +3,9 @@
   <component name="NewModuleRootManager">
     <content url="file://$MODULE_DIR$">
       <sourceFolder url="file://$MODULE_DIR$/src" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/sheaf-core/src" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/sheaf-rs/src" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/sheaf-std/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/wavelet-core/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/wavelet-rs/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/wavelet-std/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
     </content>
     <orderEntry type="inheritedJdk" />
