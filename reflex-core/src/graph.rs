@@ -1,6 +1,7 @@
 use crate::executor::ExecutionContext;
 use crate::{Control, Relationship};
 use petgraph::prelude::{EdgeRef, NodeIndex};
+use petgraph::stable_graph::StableGraph;
 
 pub(crate) type CycleFn = Box<dyn FnMut(&mut ExecutionContext) -> Control + 'static>;
 
@@ -26,13 +27,13 @@ impl NodeContext {
 }
 
 pub struct Graph {
-    inner: petgraph::Graph<NodeContext, Relationship>,
+    inner: StableGraph<NodeContext, Relationship>,
 }
 
 impl Graph {
     pub(crate) fn new() -> Self {
         Self {
-            inner: petgraph::Graph::new(),
+            inner: petgraph::prelude::StableGraph::new(),
         }
     }
 
