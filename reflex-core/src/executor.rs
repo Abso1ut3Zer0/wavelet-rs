@@ -11,11 +11,14 @@ use mio::Interest;
 use mio::event::Source;
 use petgraph::graph::NodeIndex;
 use std::cell::UnsafeCell;
+use std::collections::VecDeque;
 use std::io;
 use std::time::{Duration, Instant};
 use time::OffsetDateTime;
 
 const BUFFER_CAPACITY: usize = 32;
+
+type SpawnFn = Box<dyn FnOnce(&mut Executor) + 'static>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, EnumAsInner)]
 pub enum ExecutorState {
@@ -26,6 +29,7 @@ pub enum ExecutorState {
 pub struct ExecutionContext<'a> {
     event_driver: &'a mut EventDriver,
     scheduler: &'a UnsafeCell<Scheduler>,
+    deferred_spawns: &'a mut VecDeque<SpawnFn>,
     current: NodeIndex,
     time_snapshot: TriggerTime,
     epoch: usize,
@@ -35,12 +39,14 @@ impl<'a> ExecutionContext<'a> {
     pub(crate) fn new(
         event_driver: &'a mut EventDriver,
         scheduler: &'a UnsafeCell<Scheduler>,
+        deferred_spawns: &'a mut VecDeque<SpawnFn>,
         time_snapshot: TriggerTime,
         epoch: usize,
     ) -> Self {
         Self {
             event_driver,
             scheduler,
+            deferred_spawns,
             current: NodeIndex::new(0),
             time_snapshot,
             epoch,
@@ -117,6 +123,14 @@ impl<'a> ExecutionContext<'a> {
     pub fn has_mutated<T>(&self, parent: Node<T>) -> bool {
         parent.mut_epoch() == self.epoch
     }
+
+    #[inline(always)]
+    pub fn spawn_subgraph<F>(&mut self, spawn_fn: F)
+    where
+        F: FnOnce(&mut Executor) + 'static,
+    {
+        self.deferred_spawns.push_back(Box::new(spawn_fn));
+    }
 }
 
 pub struct Executor {
@@ -129,6 +143,7 @@ pub struct Executor {
     scheduler: UnsafeCell<Scheduler>,
     event_driver: EventDriver,
     edge_buffer: Vec<NodeIndex>,
+    deferred_spawns: VecDeque<SpawnFn>,
     gc: GarbageCollector,
     epoch: usize,
 }
@@ -140,6 +155,7 @@ impl Executor {
             scheduler: UnsafeCell::new(Scheduler::new()),
             event_driver: EventDriver::new(),
             edge_buffer: Vec::with_capacity(BUFFER_CAPACITY),
+            deferred_spawns: VecDeque::new(),
             gc: GarbageCollector::new(),
             epoch: 0,
         }
@@ -195,6 +211,7 @@ impl Executor {
         let mut ctx = ExecutionContext::new(
             &mut self.event_driver,
             &self.scheduler,
+            &mut self.deferred_spawns,
             time_snapshot,
             self.epoch,
         );
@@ -226,9 +243,12 @@ impl Executor {
             }
         }
 
-        // TODO - can add in the garbage collector and node spawner to be run here
         while let Some(marked_node) = self.gc.next_to_sweep() {
             self.graph.remove_node(marked_node);
+        }
+
+        while let Some(spawn_fn) = self.deferred_spawns.pop_front() {
+            spawn_fn(self)
         }
         Ok(ExecutorState::Running)
     }
@@ -664,5 +684,48 @@ mod tests {
             .cycle(clock.trigger_time(), Some(Duration::ZERO))
             .unwrap();
         assert_eq!(executor.graph.node_count(), 0);
+    }
+
+    #[test]
+    fn test_node_spawn_with_cleanup() {
+        let mut executor = Executor::new();
+        let mut clock = TestClock::new();
+
+        let spawned = Rc::new(Cell::new(false));
+        let flag = spawned.clone();
+        let _root = NodeBuilder::new(())
+            .on_init(|executor, _, idx| {
+                executor.yield_driver().yield_now(idx);
+            })
+            .on_drop(|_| {
+                println!("removing root");
+            })
+            .build(&mut executor, move |_, ctx| {
+                let flag = flag.clone();
+                ctx.spawn_subgraph(move |ex| {
+                    NodeBuilder::new(flag)
+                        .on_init(|executor, _, idx| {
+                            executor.yield_driver().yield_now(idx);
+                        })
+                        .spawn(ex, |data, _| {
+                            data.set(true);
+                            Control::Sweep
+                        })
+                });
+                Control::Broadcast
+            });
+
+        assert_eq!(executor.graph.node_count(), 1);
+        executor
+            .cycle(clock.trigger_time(), Some(Duration::ZERO))
+            .unwrap();
+        assert_eq!(executor.graph.node_count(), 2); // root + spawned
+        assert!(!spawned.get()); // spawned not yet called
+
+        executor
+            .cycle(clock.trigger_time(), Some(Duration::ZERO))
+            .unwrap();
+        assert_eq!(executor.graph.node_count(), 1); // root, since spawned gets swept
+        assert!(spawned.get()); // spawned now called
     }
 }

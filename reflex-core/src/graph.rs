@@ -98,6 +98,7 @@ mod tests {
     use crate::executor::ExecutionContext;
     use crate::scheduler::Scheduler;
     use std::cell::{Cell, UnsafeCell};
+    use std::collections::VecDeque;
     use std::rc::Rc;
     use std::time::Instant;
     use time::OffsetDateTime;
@@ -194,10 +195,12 @@ mod tests {
         // Create real components for ExecutionContext
         let mut event_driver = EventDriver::new();
         let scheduler = UnsafeCell::new(Scheduler::new());
+        let mut deferred_spawns = VecDeque::new();
 
         let mut exec_ctx = ExecutionContext::new(
             &mut event_driver,
             &scheduler,
+            &mut deferred_spawns,
             TriggerTime {
                 instant: Instant::now(),
                 system_time: OffsetDateTime::now_utc(),
