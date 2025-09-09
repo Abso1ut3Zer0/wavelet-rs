@@ -37,7 +37,7 @@ pub struct RuntimeBuilder<C: Clock, M: ExecutionMode> {
 }
 
 impl<C: Clock, M: ExecutionMode> RuntimeBuilder<C, M> {
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             clock: None,
             mode: None,
@@ -69,6 +69,16 @@ pub struct Runtime<C: Clock, M: ExecutionMode> {
     executor: Executor,
     clock: C,
     mode: M,
+}
+
+impl<C: Clock, M: ExecutionMode> Runtime<C, M> {
+    pub const fn builder() -> RuntimeBuilder<C, M> {
+        RuntimeBuilder::new()
+    }
+
+    pub fn executor(&mut self) -> &mut Executor {
+        &mut self.executor
+    }
 }
 
 impl<M: ExecutionMode> Runtime<PrecisionClock, M>
