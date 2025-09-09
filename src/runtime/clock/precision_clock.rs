@@ -1,4 +1,4 @@
-use crate::clock::{Clock, TriggerTime};
+use crate::runtime::clock::{Clock, TriggerTime};
 use std::time::{Duration, Instant};
 use time::OffsetDateTime;
 

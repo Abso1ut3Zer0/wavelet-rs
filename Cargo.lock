@@ -229,7 +229,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ccf3ec651a847eb01de73ccad15eb7d99f80485de043efb2f370cd654f4ea44b"
 
 [[package]]
-name = "wavelet-core"
+name = "wavelet"
 version = "0.1.0"
 dependencies = [
  "enum-as-inner",
@@ -239,14 +239,6 @@ dependencies = [
  "thiserror",
  "time",
 ]
-
-[[package]]
-name = "wavelet-rs"
-version = "0.1.0"
-
-[[package]]
-name = "wavelet-std"
-version = "0.1.0"
 
 [[package]]
 name = "windows-sys"

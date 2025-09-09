@@ -1,4 +1,4 @@
-use crate::executor::ExecutionContext;
+use crate::runtime::executor::ExecutionContext;
 use crate::{Control, Relationship};
 use petgraph::prelude::{EdgeRef, NodeIndex};
 use petgraph::stable_graph::StableGraph;
@@ -135,10 +135,10 @@ impl Graph {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::clock::TriggerTime;
-    use crate::event_driver::EventDriver;
-    use crate::executor::ExecutionContext;
-    use crate::scheduler::Scheduler;
+    use crate::runtime::clock::TriggerTime;
+    use crate::runtime::event_driver::EventDriver;
+    use crate::runtime::executor::ExecutionContext;
+    use crate::runtime::scheduler::Scheduler;
     use std::cell::{Cell, UnsafeCell};
     use std::collections::VecDeque;
     use std::rc::Rc;

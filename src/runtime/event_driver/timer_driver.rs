@@ -1,5 +1,5 @@
-use crate::graph::Graph;
-use crate::scheduler::Scheduler;
+use crate::runtime::graph::Graph;
+use crate::runtime::scheduler::Scheduler;
 use petgraph::prelude::NodeIndex;
 use std::collections::BTreeMap;
 use std::time::Instant;
@@ -123,8 +123,8 @@ impl TimerDriver {
 mod tests {
     use super::*;
     use crate::Control;
-    use crate::graph::{Graph, NodeContext};
-    use crate::scheduler::Scheduler;
+    use crate::runtime::graph::{Graph, NodeContext};
+    use crate::runtime::scheduler::Scheduler;
     use std::time::{Duration, Instant};
 
     #[test]

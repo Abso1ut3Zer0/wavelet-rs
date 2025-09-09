@@ -1,5 +1,5 @@
-use crate::graph::Graph;
-use crate::scheduler::Scheduler;
+use crate::runtime::graph::Graph;
+use crate::runtime::scheduler::Scheduler;
 use petgraph::prelude::NodeIndex;
 
 /// Manages immediate node scheduling for deferred execution.

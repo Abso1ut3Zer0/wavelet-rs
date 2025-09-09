@@ -1,3 +1,15 @@
-[workspace]
-resolver = "2"
-members = ["wavelet-core", "wavelet-rs", "wavelet-std"]
+[package]
+name = "wavelet"
+version = "0.1.0"
+edition = "2024"
+description = "High-performance graph-based stream processing runtime"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/Abso1ut3Zer0/wavelet-rs"
+
+[dependencies]
+enum-as-inner = "0.6.1"
+mio = { version = "1.0.4", features = ["os-poll", "net"] }
+petgraph = "0.8.2"
+slab = "0.4.11"
+thiserror = "2.0.16"
+time = "0.3.42"

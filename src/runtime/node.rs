@@ -1,7 +1,7 @@
-use crate::event_driver::Notifier;
-use crate::executor::{ExecutionContext, Executor};
-use crate::garbage_collector::GarbageCollector;
-use crate::graph::NodeContext;
+use crate::runtime::event_driver::Notifier;
+use crate::runtime::executor::{ExecutionContext, Executor};
+use crate::runtime::garbage_collector::GarbageCollector;
+use crate::runtime::graph::NodeContext;
 use crate::{Control, Relationship};
 use petgraph::prelude::NodeIndex;
 use std::cell::UnsafeCell;
@@ -36,7 +36,7 @@ type OnDrop<T> = Box<dyn FnMut(&mut T) + 'static>;
 ///
 /// # Example
 /// ```rust
-/// use wavelet_core::prelude::{Node, NodeBuilder, Control, Executor};
+/// use wavelet::prelude::{Node, NodeBuilder, Control, Executor};
 ///
 /// let mut executor = Executor::new();
 /// let counter_node = NodeBuilder::new(0u64)  // Data: u64 counter
@@ -172,10 +172,10 @@ impl<T: 'static> Clone for Node<T> {
 ///
 /// # Example
 /// ```rust
-/// use wavelet_core::prelude::{Node, NodeBuilder, WeakNode, Executor, Control};
+/// use wavelet::prelude::{Node, NodeBuilder, WeakNode, Executor, Control};
 ///
 /// let mut executor = Executor::new();
-/// let node = NodeBuilder::new(0).build(&mut executor, |_| Control::Unchanged);
+/// let node = NodeBuilder::new(0).build(&mut executor, |_, _| Control::Unchanged);
 /// let weak_ref = node.downgrade();
 ///
 /// // Later, check if the node is still alive

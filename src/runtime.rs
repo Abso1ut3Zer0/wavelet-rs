@@ -1,6 +1,15 @@
-use crate::clock::{Clock, HistoricalClock, PrecisionClock, TestClock};
-use crate::executor::{Executor, ExecutorState};
+use crate::prelude::{Clock, Executor};
+use crate::runtime::clock::{HistoricalClock, PrecisionClock, TestClock};
+use crate::runtime::executor::ExecutorState;
 use std::time::Duration;
+
+pub mod clock;
+pub mod event_driver;
+pub mod executor;
+mod garbage_collector;
+pub mod graph;
+pub mod node;
+mod scheduler;
 
 const MINIMUM_TIMER_PRECISION: Duration = Duration::from_millis(1);
 
@@ -39,7 +48,7 @@ impl ExecutionMode for Block {}
 impl Sleep {
     /// Creates a new Sleep execution mode with the specified maximum duration.
     ///
-    /// The duration must be at least 1ms to prevent excessive polling.
+    /// The duration must be at least 1ms due to normal OS sleep limitations.
     pub fn new(duration: Duration) -> Self {
         assert!(duration >= Duration::from_millis(1));
         Self(duration)

@@ -1,11 +1,11 @@
 use crate::Control;
-use crate::clock::TriggerTime;
-use crate::event_driver::YieldDriver;
-use crate::event_driver::{EventDriver, IoDriver, IoSource, TimerDriver, TimerSource};
-use crate::garbage_collector::GarbageCollector;
-use crate::graph::Graph;
-use crate::node::Node;
-use crate::scheduler::Scheduler;
+use crate::runtime::clock::TriggerTime;
+use crate::runtime::event_driver::YieldDriver;
+use crate::runtime::event_driver::{EventDriver, IoDriver, IoSource, TimerDriver, TimerSource};
+use crate::runtime::garbage_collector::GarbageCollector;
+use crate::runtime::graph::Graph;
+use crate::runtime::node::Node;
+use crate::runtime::scheduler::Scheduler;
 use enum_as_inner::EnumAsInner;
 use mio::Interest;
 use mio::event::Source;
@@ -471,8 +471,8 @@ impl Executor {
 mod tests {
     use super::*;
     use crate::Relationship;
-    use crate::clock::{Clock, TestClock};
-    use crate::node::NodeBuilder;
+    use crate::runtime::clock::{Clock, TestClock};
+    use crate::runtime::node::NodeBuilder;
     use std::cell::{Cell, RefCell};
     use std::rc::Rc;
 

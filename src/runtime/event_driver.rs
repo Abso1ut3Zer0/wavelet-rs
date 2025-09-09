@@ -2,11 +2,11 @@ mod io_driver;
 mod timer_driver;
 mod yield_driver;
 
-pub use crate::event_driver::io_driver::*;
-pub use crate::event_driver::timer_driver::*;
-pub use crate::event_driver::yield_driver::*;
-use crate::graph::Graph;
-use crate::scheduler::Scheduler;
+pub use crate::runtime::event_driver::io_driver::*;
+pub use crate::runtime::event_driver::timer_driver::*;
+pub use crate::runtime::event_driver::yield_driver::*;
+use crate::runtime::graph::Graph;
+use crate::runtime::scheduler::Scheduler;
 use std::io;
 use std::time::{Duration, Instant};
 

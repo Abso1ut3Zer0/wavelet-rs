@@ -2,8 +2,8 @@ use petgraph::prelude::NodeIndex;
 use slab::Slab;
 use std::io;
 
-use crate::graph::Graph;
-use crate::scheduler::Scheduler;
+use crate::runtime::graph::Graph;
+use crate::runtime::scheduler::Scheduler;
 pub use mio::{Interest, event::Source};
 
 /// A handle to an I/O source registered with the event loop.
@@ -158,7 +158,7 @@ impl IoDriver {
     /// any nodes associated with ready sources. Uses epoch-based deduplication
     /// to prevent scheduling the same node multiple times per cycle.
     #[inline(always)]
-    pub(super) fn poll(
+    pub(crate) fn poll(
         &mut self,
         graph: &mut Graph,
         scheduler: &mut Scheduler,
@@ -181,7 +181,7 @@ impl IoDriver {
 mod tests {
     use super::*;
     use crate::Control;
-    use crate::graph::NodeContext;
+    use crate::runtime::graph::NodeContext;
     use mio::net::TcpListener;
     use std::net::SocketAddr;
 
@@ -434,7 +434,7 @@ mod tests {
 mod integration_tests {
     use super::*;
     use crate::Control;
-    use crate::graph::NodeContext;
+    use crate::runtime::graph::NodeContext;
     use std::io::Write;
     use std::net::{TcpListener, TcpStream};
     use std::thread;

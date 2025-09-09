@@ -1,11 +1,4 @@
-pub mod clock;
-pub mod event_driver;
-pub mod executor;
-mod garbage_collector;
-pub mod graph;
-pub mod node;
 pub mod runtime;
-mod scheduler;
 
 use enum_as_inner::EnumAsInner;
 pub use petgraph::prelude::NodeIndex;
@@ -67,11 +60,11 @@ pub enum Control {
 pub mod prelude {
     pub use crate::{Control, Relationship};
 
-    pub use crate::clock::Clock;
-    pub use crate::event_driver::{
+    pub use crate::runtime::clock::Clock;
+    pub use crate::runtime::event_driver::{
         EventDriver, Interest, IoDriver, Notifier, TimerDriver, TimerSource, YieldDriver,
     };
-    pub use crate::executor::{ExecutionContext, Executor};
-    pub use crate::node::*;
+    pub use crate::runtime::executor::{ExecutionContext, Executor};
+    pub use crate::runtime::node::*;
     pub use crate::runtime::Runtime;
 }

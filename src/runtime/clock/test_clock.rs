@@ -1,4 +1,4 @@
-use crate::clock::{Clock, TriggerTime};
+use crate::runtime::clock::{Clock, TriggerTime};
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
