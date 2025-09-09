@@ -96,7 +96,6 @@ mod tests {
     use crate::clock::TriggerTime;
     use crate::event_driver::EventDriver;
     use crate::executor::ExecutionContext;
-    use crate::garbage_collector::GarbageCollector;
     use crate::scheduler::Scheduler;
     use std::cell::{Cell, UnsafeCell};
     use std::rc::Rc;
@@ -195,7 +194,6 @@ mod tests {
         // Create real components for ExecutionContext
         let mut event_driver = EventDriver::new();
         let scheduler = UnsafeCell::new(Scheduler::new());
-        let gc = GarbageCollector::new();
 
         let mut exec_ctx = ExecutionContext::new(
             &mut event_driver,

@@ -181,9 +181,11 @@ impl<T: 'static> NodeBuilder<T> {
             .unwrap_or(0);
 
         {
-            let state = node.clone();
-            let cycle_fn =
-                Box::new(move |ctx: &mut ExecutionContext| cycle_fn(state.borrow_mut(), ctx));
+            let state = node.downgrade();
+            let cycle_fn = Box::new(move |ctx: &mut ExecutionContext| match state.upgrade() {
+                Some(state) => cycle_fn(state.borrow_mut(), ctx),
+                None => Control::Sweep,
+            });
 
             let idx = executor.graph().add_node(NodeContext::new(cycle_fn, depth));
             let inner = node.get_mut();
@@ -216,5 +218,39 @@ impl<T: 'static> NodeBuilder<T> {
         let node = self.build(executor, cycle_fn);
         let notifier = executor.io_driver().register_notifier(node.index())?;
         Ok((node, notifier))
+    }
+
+    pub fn spawn<F>(self, executor: &mut Executor, mut cycle_fn: F)
+    where
+        F: FnMut(&mut T, &mut ExecutionContext) -> Control + 'static,
+    {
+        let node = Node::uninitialized(self.data, self.name, executor.garbage_collector());
+        let depth = self
+            .parents
+            .iter()
+            .map(|(_, depth, _)| depth)
+            .max()
+            .map(|d| d + 1)
+            .unwrap_or(0);
+
+        let state = node.clone();
+        let cycle_fn =
+            Box::new(move |ctx: &mut ExecutionContext| cycle_fn(state.borrow_mut(), ctx));
+
+        let idx = executor.graph().add_node(NodeContext::new(cycle_fn, depth));
+        let inner = node.get_mut();
+        inner.index = idx;
+        inner.depth = depth;
+
+        self.parents.iter().for_each(|(parent, _, relationship)| {
+            executor.graph().add_edge(*parent, idx, *relationship);
+        });
+
+        executor.scheduler().enable_depth(depth);
+        if let Some(mut on_init) = self.on_init {
+            (on_init)(executor, &mut node.get_mut().data, idx)
+        }
+
+        inner.on_drop = self.on_drop;
     }
 }

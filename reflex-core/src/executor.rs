@@ -240,7 +240,6 @@ mod tests {
     use crate::Relationship;
     use crate::clock::{Clock, TestClock};
     use crate::node::NodeBuilder;
-    use petgraph::visit::NodeCount;
     use std::cell::{Cell, RefCell};
     use std::rc::Rc;
 
@@ -649,13 +648,13 @@ mod tests {
                 Control::Broadcast
             });
 
-        let node3 = NodeBuilder::new(gc_count.clone())
+        NodeBuilder::new(gc_count.clone())
             .triggered_by(&node2)
             .on_drop(|data| {
                 println!("removing node3");
                 data.update(|count| count + 1);
             })
-            .build(&mut executor, move |_, _| {
+            .spawn(&mut executor, move |_, _| {
                 println!("node2 data: {}", node2.borrow().get());
                 Control::Sweep
             });
@@ -664,6 +663,6 @@ mod tests {
         executor
             .cycle(clock.trigger_time(), Some(Duration::ZERO))
             .unwrap();
-        // assert_eq!(executor.graph.node_count(), 0);
+        assert_eq!(executor.graph.node_count(), 0);
     }
 }
