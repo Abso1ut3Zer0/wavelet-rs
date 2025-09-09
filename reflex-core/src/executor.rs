@@ -692,16 +692,15 @@ mod tests {
         let mut clock = TestClock::new();
 
         let spawned = Rc::new(Cell::new(false));
-        let flag = spawned.clone();
-        let _root = NodeBuilder::new(())
+        let _root = NodeBuilder::new(spawned.clone())
             .on_init(|executor, _, idx| {
                 executor.yield_driver().yield_now(idx);
             })
             .on_drop(|_| {
                 println!("removing root");
             })
-            .build(&mut executor, move |_, ctx| {
-                let flag = flag.clone();
+            .build(&mut executor, |spawned, ctx| {
+                let flag = spawned.clone();
                 ctx.spawn_subgraph(move |ex| {
                     NodeBuilder::new(flag)
                         .on_init(|executor, _, idx| {
