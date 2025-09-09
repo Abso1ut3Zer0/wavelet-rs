@@ -118,7 +118,7 @@ impl<'a> ExecutionContext<'a> {
 
     #[inline(always)]
     pub fn mark_for_removal<T>(&self, node: &Node<T>) {
-        self.garbage_collector.mark_for_removal(node.index())
+        self.garbage_collector.mark_for_sweep(node.index())
     }
 
     #[inline(always)]
@@ -229,7 +229,7 @@ impl Executor {
         }
 
         // TODO - can add in the garbage collector and node spawner to be run here
-        while let Some(marked_node) = self.garbage_collector.next_node() {
+        while let Some(marked_node) = self.garbage_collector.next_to_sweep() {
             self.graph.remove_node(marked_node);
         }
         Ok(ExecutorState::Running)

@@ -83,6 +83,8 @@ impl Graph {
     pub(crate) fn remove_node(&mut self, node_index: NodeIndex) {
         self.inner.remove_node(node_index);
     }
+
+    
 }
 
 #[cfg(test)]
