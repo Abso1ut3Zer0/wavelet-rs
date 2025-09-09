@@ -4,14 +4,41 @@ use petgraph::prelude::NodeIndex;
 use std::collections::BTreeMap;
 use std::time::Instant;
 
+/// A handle to a registered timer that can be used to cancel the timer.
+///
+/// `TimerSource` contains the timer's target time and a unique sequence ID.
+/// The sequence ID ensures that multiple timers registered for the same
+/// instant are ordered deterministically and can be individually cancelled.
+///
+/// The ordering is: earlier times first, then by sequence ID for same times.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct TimerSource {
+    /// When this timer should fire
     when: Instant,
+
+    /// Unique sequence number for deterministic ordering
     id: usize,
 }
 
+/// Manages timer registration and expiration for the runtime.
+///
+/// The `TimerDriver` provides time-based node scheduling using:
+/// - **BTreeMap storage**: Automatically orders timers by expiration time
+/// - **Sequence IDs**: Ensures deterministic ordering for simultaneous timers
+/// - **Efficient polling**: O(log n) insertion, O(1) next timer lookup
+/// - **Batch expiration**: Processes all expired timers in a single poll cycle
+///
+/// # Timer Ordering
+/// Timers are ordered first by their target `Instant`, then by their sequence ID.
+/// This ensures that:
+/// - Earlier timers always fire first
+/// - Timers registered for the same instant fire in registration order
+/// - Each timer can be uniquely identified and cancelled
 pub struct TimerDriver {
+    /// Ordered map of active timers to their associated nodes
     timers: BTreeMap<TimerSource, NodeIndex>,
+
+    /// Monotonically increasing sequence counter for unique timer IDs
     sequence: usize,
 }
 
@@ -23,11 +50,25 @@ impl TimerDriver {
         }
     }
 
+    /// Returns the `Instant` when the next timer will expire, if any.
+    ///
+    /// Used by the runtime to determine optimal polling timeouts - if there's
+    /// a timer expiring soon, the runtime can sleep until then instead of
+    /// using a longer default timeout.
     #[inline(always)]
     pub(crate) fn next_timer(&self) -> Option<Instant> {
         self.timers.first_key_value().map(|(key, _)| key.when)
     }
 
+    /// Registers a timer to fire at the specified time.
+    ///
+    /// Returns a `TimerSource` handle that can be used to cancel the timer
+    /// before it expires. The timer will schedule the associated node when
+    /// the current time reaches or exceeds the target time.
+    ///
+    /// # Parameters
+    /// - `idx`: The node to schedule when the timer expires
+    /// - `when`: The target time for timer expiration
     #[inline(always)]
     pub fn register_timer(&mut self, idx: NodeIndex, when: Instant) -> TimerSource {
         let registration = TimerSource {
@@ -39,11 +80,24 @@ impl TimerDriver {
         registration
     }
 
+    /// Cancels a previously registered timer.
+    ///
+    /// Removes the timer from the active timer set. If the timer has already
+    /// expired, this operation has no effect.
     #[inline(always)]
     pub fn deregister_timer(&mut self, source: TimerSource) {
         self.timers.remove(&source);
     }
 
+    /// Checks for expired timers and schedules their associated nodes.
+    ///
+    /// Processes all timers that have expired as of the current time, scheduling
+    /// their nodes for execution. Uses epoch-based deduplication to prevent
+    /// scheduling the same node multiple times per cycle.
+    ///
+    /// The implementation efficiently processes expired timers by leveraging
+    /// the BTreeMap's ordering - it processes timers from earliest to latest
+    /// until it finds one that hasn't expired yet.
     #[inline(always)]
     pub(crate) fn poll(
         &mut self,

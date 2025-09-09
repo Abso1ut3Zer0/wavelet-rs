@@ -5,13 +5,26 @@ use petgraph::stable_graph::StableGraph;
 
 pub(crate) type CycleFn = Box<dyn FnMut(&mut ExecutionContext) -> Control + 'static>;
 
+/// Runtime context for a node within the computation graph.
+///
+/// Stores the node's execution function, scheduling metadata, and depth
+/// information. This is the internal representation used by the graph
+/// to manage node execution.
 pub(crate) struct NodeContext {
+    /// The node's computation logic
     pub(crate) cycle_fn: CycleFn,
+
+    /// Last epoch this node was scheduled (prevents duplicate scheduling)
     pub(crate) sched_epoch: usize,
+
+    /// Node's depth level in the dependency graph
     pub(crate) depth: u32,
 }
 
 impl NodeContext {
+    /// Creates a new node context with the given cycle function and depth.
+    ///
+    /// The scheduling epoch starts at 0 and will be updated by the runtime.
     pub(crate) const fn new(cycle_fn: CycleFn, depth: u32) -> Self {
         Self {
             cycle_fn,
@@ -20,13 +33,25 @@ impl NodeContext {
         }
     }
 
+    /// Executes the node's cycle function with the provided execution context.
     #[inline(always)]
     fn cycle(&mut self, ctx: &mut ExecutionContext) -> Control {
         (self.cycle_fn)(ctx)
     }
 }
 
+/// The computation graph that manages node relationships and execution.
+///
+/// Uses `petgraph::StableGraph` as the backing store, which provides:
+/// - **Stable indices**: `NodeIndex` values remain valid even after other nodes are removed
+/// - **Efficient removal**: Removed nodes leave gaps that can be reused for new nodes
+/// - **O(1) access**: Direct indexing into node and edge data
+///
+/// The stable indices are crucial for the runtime's design - nodes can safely
+/// hold references to other nodes via `NodeIndex` without worrying about
+/// invalidation during garbage collection.
 pub struct Graph {
+    /// Backing graph storage with stable node indices
     inner: StableGraph<NodeContext, Relationship>,
 }
 
@@ -37,6 +62,11 @@ impl Graph {
         }
     }
 
+    /// Checks if a node can be scheduled and marks it for the current epoch.
+    ///
+    /// Returns `Some(depth)` if the node hasn't been scheduled this epoch,
+    /// or `None` if it's already been scheduled. This prevents duplicate
+    /// scheduling within a single execution cycle.
     #[inline(always)]
     pub(crate) fn can_schedule(&mut self, node_index: NodeIndex, epoch: usize) -> Option<u32> {
         let ctx = &mut self.inner[node_index];
@@ -48,6 +78,10 @@ impl Graph {
         Some(ctx.depth)
     }
 
+    /// Returns an iterator over child nodes with `Trigger` relationships.
+    ///
+    /// Used during broadcast propagation to find which nodes should be
+    /// scheduled when the current node mutates.
     #[inline(always)]
     pub(crate) fn triggering_edges(
         &self,
@@ -59,16 +93,19 @@ impl Graph {
             .map(|edge| edge.target())
     }
 
+    /// Executes the cycle function for the specified node.
     #[inline(always)]
     pub(crate) fn cycle(&mut self, ctx: &mut ExecutionContext, node_index: NodeIndex) -> Control {
         self.inner[node_index].cycle(ctx)
     }
 
+    /// Adds a new node to the graph and returns its stable index.
     #[inline(always)]
     pub(crate) fn add_node(&mut self, weight: NodeContext) -> NodeIndex {
         self.inner.add_node(weight)
     }
 
+    /// Creates a directed edge between two nodes with the specified relationship.
     #[inline(always)]
     pub(crate) fn add_edge(
         &mut self,
@@ -79,11 +116,16 @@ impl Graph {
         self.inner.add_edge(parent, child, relationship);
     }
 
+    /// Removes a node from the graph, leaving a reusable gap.
+    ///
+    /// The node's index becomes available for reuse by future `add_node` calls.
+    /// All edges connected to this node are automatically removed.
     #[inline(always)]
     pub(crate) fn remove_node(&mut self, node_index: NodeIndex) {
         self.inner.remove_node(node_index);
     }
 
+    /// Returns the current number of nodes in the graph.
     #[allow(dead_code)]
     pub(crate) fn node_count(&self) -> usize {
         self.inner.node_count()

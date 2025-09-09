@@ -20,22 +20,51 @@ const BUFFER_CAPACITY: usize = 32;
 
 type SpawnFn = Box<dyn FnOnce(&mut Executor) + 'static>;
 
+/// Indicates whether the executor should continue running or terminate.
+///
+/// Returned by the main execution cycle to signal the runtime's desired state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, EnumAsInner)]
 pub enum ExecutorState {
+    /// The executor should continue processing cycles
     Running,
+
+    /// The executor should shut down gracefully (triggered by `Control::Terminate`)
     Terminated,
 }
 
+/// Execution context provided to nodes during their cycle function.
+///
+/// `ExecutionContext` is the primary interface that nodes use to interact
+/// with the runtime during execution. It provides access to:
+/// - **Event registration**: I/O sources, timers, and yield scheduling
+/// - **Graph operations**: Scheduling other nodes and spawning subgraphs
+/// - **Time information**: Current time snapshots for consistent timing
+/// - **Mutation tracking**: Check if dependencies have changed this cycle
+///
+/// The context is only valid during the current graph cycle and borrows
+/// from the main executor, ensuring safe access to runtime resources.
 pub struct ExecutionContext<'a> {
+    /// Access to all event drivers for registration
     event_driver: &'a mut EventDriver,
+
+    /// Scheduler for immediate node scheduling
     scheduler: &'a UnsafeCell<Scheduler>,
+
+    /// Queue for deferred subgraph creation
     deferred_spawns: &'a mut VecDeque<SpawnFn>,
+
+    /// The currently executing node
     current: NodeIndex,
+
+    /// Consistent time snapshot for this execution cycle
     time_snapshot: TriggerTime,
+
+    /// Current execution epoch for change tracking
     epoch: usize,
 }
 
 impl<'a> ExecutionContext<'a> {
+    /// Creates a new execution context (internal use only).
     pub(crate) fn new(
         event_driver: &'a mut EventDriver,
         scheduler: &'a UnsafeCell<Scheduler>,
@@ -53,6 +82,7 @@ impl<'a> ExecutionContext<'a> {
         }
     }
 
+    /// Registers an I/O source to receive events for the specified node.
     #[inline(always)]
     pub fn register_io<S: Source>(
         &mut self,
@@ -65,11 +95,13 @@ impl<'a> ExecutionContext<'a> {
             .register_source(source, idx, interest)
     }
 
+    /// Removes an I/O source from event monitoring.
     #[inline(always)]
     pub fn deregister_io<S: Source>(&mut self, source: IoSource<S>) -> io::Result<NodeIndex> {
         self.event_driver.io_driver().deregister_source(source)
     }
 
+    /// Changes the interest flags for an existing I/O source.
     #[inline(always)]
     pub fn reregister_io<S: Source>(
         &mut self,
@@ -81,6 +113,7 @@ impl<'a> ExecutionContext<'a> {
             .reregister_source(handle, interest)
     }
 
+    /// Registers a timer to schedule a node at the specified time.
     #[inline(always)]
     pub fn register_timer(&mut self, node_index: NodeIndex, when: Instant) -> TimerSource {
         self.event_driver
@@ -88,42 +121,73 @@ impl<'a> ExecutionContext<'a> {
             .register_timer(node_index, when)
     }
 
+    /// Cancels a previously registered timer.
     #[inline(always)]
     pub fn deregister_timer(&mut self, source: TimerSource) {
         self.event_driver.timer_driver().deregister_timer(source)
     }
 
+    /// Schedules a node for execution in the current cycle.
+    ///
+    /// This is the framework's `yield_now()` equivalent for immediate scheduling.
     #[inline(always)]
     pub fn yield_now(&mut self, node_index: NodeIndex) {
         self.event_driver.yield_driver().yield_now(node_index)
     }
 
+    /// Returns the index of the currently executing node.
     pub const fn current(&self) -> NodeIndex {
         self.current
     }
 
+    /// Returns the monotonic time snapshot for this execution cycle.
+    ///
+    /// All nodes in the same cycle see the same time value for consistency.
     pub const fn now(&self) -> Instant {
         self.time_snapshot.instant
     }
 
+    /// Returns the wall clock time snapshot for this execution cycle.
+    ///
+    /// All nodes in the same cycle see the same time value for consistency.
     pub const fn trigger_time(&self) -> OffsetDateTime {
         self.time_snapshot.system_time
     }
 
+    /// Updates the currently executing node (internal use only).
     const fn set_current(&mut self, node_index: NodeIndex) {
         self.current = node_index;
     }
 
+    /// Schedules another node for execution in the current cycle.
+    ///
+    /// Bypasses the normal dependency-based scheduling to manually trigger
+    /// a specific node. Use sparingly as it can break incremental computation
+    /// guarantees if not used carefully.
+    ///
+    /// Note: this call will panic if you are scheduling a node at a depth
+    /// higher than the current depth in the graph.
     #[inline(always)]
     pub fn schedule_node<T>(&mut self, node: &Node<T>) {
         unsafe { (&mut *self.scheduler.get()).schedule(node.index(), node.depth()) }
     }
 
+    /// Checks if a parent node has mutated in the current execution cycle.
+    ///
+    /// Used by nodes with `Observe` relationships to determine when their
+    /// dependencies have changed and action may be needed.
     #[inline(always)]
     pub fn has_mutated<T>(&self, parent: Node<T>) -> bool {
         parent.mut_epoch() == self.epoch
     }
 
+    /// Defers the creation of a subgraph until after the current cycle completes.
+    ///
+    /// The provided closure will be called with full executor access after all
+    /// nodes in the current cycle have finished executing. This prevents
+    /// graph modification during active execution to ensure the graph remains
+    /// consistent across the current processing cycle (avoids any reentrancy
+    /// related issues).
     #[inline(always)]
     pub fn spawn_subgraph<F>(&mut self, spawn_fn: F)
     where
@@ -133,18 +197,52 @@ impl<'a> ExecutionContext<'a> {
     }
 }
 
+/// The core execution engine that manages the computation graph and runtime state.
+///
+/// The `Executor` is the heart of the wavelet runtime, responsible for:
+/// - **Graph management**: Storing nodes, relationships, and topology
+/// - **Event coordination**: Integrating I/O, timers, and yield events
+/// - **Scheduling**: Orchestrating dependency-ordered node execution
+/// - **Lifecycle management**: Handling node creation, execution, and cleanup
+/// - **Resource management**: Coordinating garbage collection and memory cleanup
+///
+/// # Architecture
+/// The executor operates on a single-threaded, cooperative model where nodes
+/// execute in dependency order and voluntarily yield control. This provides:
+/// - **Deterministic execution**: Predictable ordering and timing
+/// - **Zero-cost scheduling**: Direct function calls without async overhead
+/// - **Controlled resource usage**: No hidden thread spawning or allocation
+///
+/// # Safety Notes
+/// Uses `UnsafeCell<Scheduler>` for interior mutability in the single-threaded
+/// context. The access pattern ensures safety through temporal separation:
+/// `pop()` → node execution → `schedule()` → repeat, with no overlapping borrows.
 pub struct Executor {
+    /// The computation graph containing all nodes and relationships
     graph: Graph,
+
+    /// Node scheduler with safe interior mutability
+    ///
     /// SAFETY: Scheduler access through UnsafeCell is safe because:
     /// 1. Single-threaded execution only
     /// 2. All mutable accesses are temporally separated (no simultaneous borrows)
     /// 3. Access pattern: pop() → node execution → schedule() → repeat
     /// Each step releases its mutable reference before the next begins.
     scheduler: UnsafeCell<Scheduler>,
+
+    /// Unified event management for I/O, timers, and yields
     event_driver: EventDriver,
+
+    /// Reusable buffer for collecting triggering edges during broadcast
     edge_buffer: Vec<NodeIndex>,
+
+    /// Queue of deferred subgraph creation functions
     deferred_spawns: VecDeque<SpawnFn>,
+
+    /// Garbage collector for coordinating node cleanup
     gc: GarbageCollector,
+
+    /// Current execution epoch for change tracking and deduplication
     epoch: usize,
 }
 
@@ -161,35 +259,148 @@ impl Executor {
         }
     }
 
+    /// Provides access to the I/O event driver for source registration.
+    ///
+    /// Use this to register network sockets, file handles, or other I/O sources
+    /// that should trigger node execution when ready. fm
     pub const fn io_driver(&mut self) -> &mut IoDriver {
         self.event_driver.io_driver()
     }
 
+    /// Provides access to the timer driver for time-based scheduling.
+    ///
+    /// Use this to register timers that will schedule nodes at specific times
+    /// or after delays.
     pub const fn timer_driver(&mut self) -> &mut TimerDriver {
         self.event_driver.timer_driver()
     }
 
+    /// Provides access to the yield driver for immediate scheduling.
+    ///
+    /// Use this to schedule nodes for execution in the current cycle, typically
+    /// during node initialization or for self-triggering patterns.
     pub const fn yield_driver(&mut self) -> &mut YieldDriver {
         self.event_driver.yield_driver()
     }
 
+    /// Provides internal access to the computation graph (runtime internal only).
     pub(crate) const fn graph(&mut self) -> &mut Graph {
         &mut self.graph
     }
 
+    /// Provides internal access to the scheduler (runtime internal only).
+    ///
+    /// # Safety
+    /// Accesses the scheduler through UnsafeCell. Safe due to single-threaded
+    /// execution and non-overlapping access patterns in the execution loop.
     pub(crate) const fn scheduler(&mut self) -> &mut Scheduler {
         unsafe { &mut *self.scheduler.get() }
     }
 
+    /// Returns a cloneable handle to the garbage collector.
+    ///
+    /// Used by nodes to register themselves for cleanup when dropped.
+    /// The garbage collector coordinates deferred removal after cycle completion.
     pub(crate) fn garbage_collector(&mut self) -> GarbageCollector {
         self.gc.clone()
     }
 
+    /// Returns when the next timer will expire, if any.
+    ///
+    /// Used by the runtime to optimize polling timeouts - if there's a timer
+    /// expiring soon, polling can be shortened to wake up at the right time.
     #[inline(always)]
     pub(crate) fn next_timer(&mut self) -> Option<Instant> {
         self.event_driver.timer_driver().next_timer()
     }
 
+    /// Executes a single cycle of the computation graph.
+    ///
+    /// This is the core execution method that orchestrates one complete cycle
+    /// of event processing, node execution, and cleanup. Each cycle follows
+    /// a precise sequence to ensure deterministic behavior and correct
+    /// dependency ordering.
+    ///
+    /// # Execution Flow
+    ///
+    /// ## 1. Epoch Management
+    /// ```text
+    /// epoch = epoch.wrapping_add(1)
+    /// ```
+    /// Increments the global epoch counter used for:
+    /// - Change tracking (`has_mutated()` queries)
+    /// - Scheduling deduplication (prevents double-scheduling nodes)
+    /// - Mutation epoch stamping when nodes execute
+    ///
+    /// ## 2. Event Polling
+    /// ```text
+    /// event_driver.poll() → schedules ready nodes
+    /// ```
+    /// Processes all event sources in priority order:
+    /// - **Yield events**: Immediate scheduling requests (highest priority)
+    /// - **Timer events**: Expired timers based on current time
+    /// - **I/O events**: Ready network/file sources (uses timeout parameter)
+    ///
+    /// ## 3. Node Execution Loop
+    /// ```text
+    /// while scheduler.pop() → Some(node_idx):
+    ///     ctx.set_current(node_idx)
+    ///     result = node.cycle(ctx)
+    ///     handle_control_result(result)
+    /// ```
+    ///
+    /// Executes nodes in dependency order (depth-first) until scheduler is empty:
+    /// - **Update context**: Set current node for context queries
+    /// - **Execute node**: Call the node's cycle function with mutable data access
+    /// - **Process result**: Handle the returned `Control` value:
+    ///
+    /// ### Control Flow Handling
+    /// - **`Control::Broadcast`**:
+    ///   ```text
+    ///   collect triggering_edges(node) → edge_buffer
+    ///   for each child: try schedule(child, depth)
+    ///   ```
+    ///   Node has mutated - schedule all children with `Trigger` relationships
+    ///
+    /// - **`Control::Unchanged`**:
+    ///   Node processed but didn't change - no downstream scheduling
+    ///
+    /// - **`Control::Sweep`**:
+    ///   ```text
+    ///   gc.mark_for_sweep(node_idx)
+    ///   ```
+    ///   Node requests removal - mark for cleanup after cycle
+    ///
+    /// - **`Control::Terminate`**:
+    ///   ```text
+    ///   return ExecutorState::Terminated
+    ///   ```
+    ///   Graceful shutdown requested - exit immediately
+    ///
+    /// ## 4. Cleanup Phase
+    /// ```text
+    /// while gc.next_to_sweep() → Some(node):
+    ///     graph.remove_node(node)
+    /// ```
+    /// Remove all nodes marked for garbage collection during execution.
+    /// Safe to modify the graph structure after all nodes have finished executing.
+    ///
+    /// ## 5. Deferred Operations
+    /// ```text
+    /// while deferred_spawns.pop_front() → Some(spawn_fn):
+    ///     spawn_fn(executor)
+    /// ```
+    /// Execute any subgraph creation functions queued during node execution.
+    /// This allows dynamic graph modification without disrupting the current cycle.
+    ///
+    /// # Parameters
+    /// - `time_snapshot`: Consistent time values for all nodes in this cycle
+    /// - `timeout`: Maximum time to wait for I/O events (None = no timeout)
+    ///
+    /// # Returns
+    /// - `Ok(ExecutorState::Running)`: Cycle completed normally, ready for next cycle
+    /// - `Ok(ExecutorState::Terminated)`: Graceful shutdown requested by a node
+    /// - `Err(io::Error)`: I/O polling failed
     pub fn cycle(
         &mut self,
         time_snapshot: TriggerTime,
@@ -243,10 +454,12 @@ impl Executor {
             }
         }
 
+        // Sweep all nodes marked for cleanup
         while let Some(marked_node) = self.gc.next_to_sweep() {
             self.graph.remove_node(marked_node);
         }
 
+        // Execute any deferred subgraph creation functions
         while let Some(spawn_fn) = self.deferred_spawns.pop_front() {
             spawn_fn(self)
         }

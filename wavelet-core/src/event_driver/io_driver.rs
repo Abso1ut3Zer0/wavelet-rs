@@ -6,47 +6,83 @@ use crate::graph::Graph;
 use crate::scheduler::Scheduler;
 pub use mio::{Interest, event::Source};
 
+/// A handle to an I/O source registered with the event loop.
+///
+/// Wraps a `mio::Source` along with its polling token. Provides
+/// type-safe access to the underlying I/O resource while maintaining
+/// the association with the event system.
 pub struct IoSource<S: Source> {
     source: S,
     token: mio::Token,
 }
 
 impl<S: Source> IoSource<S> {
+    /// Creates a new I/O source handle (internal use only).
     const fn new(source: S, token: mio::Token) -> Self {
         IoSource { source, token }
     }
 
+    /// Returns an immutable reference to the underlying I/O source.
     pub const fn source(&self) -> &S {
         &self.source
     }
 
+    /// Returns a mutable reference to the underlying I/O source.
     pub const fn source_mut(&mut self) -> &mut S {
         &mut self.source
     }
 }
 
+/// A handle for waking a node from external threads or contexts.
+///
+/// `Notifier` provides a thread-safe way to schedule a node for execution
+/// from outside the main event loop. Useful for integrating with external
+/// libraries, user input, or cross-thread communication.
 pub struct Notifier {
     waker: mio::Waker,
     token: mio::Token,
 }
 
 impl Notifier {
+    /// Creates a new notifier handle (internal use only).
     const fn new(waker: mio::Waker, token: mio::Token) -> Self {
         Self { waker, token }
     }
 
+    /// Wakes the associated node, causing it to be scheduled for execution.
+    ///
+    /// This method is thread-safe and can be called from any thread.
+    /// The node will be scheduled on the next polling cycle.
     pub fn notify(&self) -> io::Result<()> {
         self.waker.wake()
     }
 }
 
+/// Manages I/O event registration and polling for the runtime.
+///
+/// The `IoDriver` integrates `mio` with the graph runtime, providing:
+/// - **Source registration**: Associate I/O sources with specific nodes
+/// - **Event polling**: Check for ready I/O events during runtime cycles
+/// - **Automatic scheduling**: Ready nodes are automatically added to the scheduler
+/// - **Token management**: Uses a `Slab` allocator for efficient token reuse
+///
+/// # Architecture
+/// Uses `mio::Poll` for cross-platform I/O event notification and a `Slab<NodeIndex>`
+/// to map event tokens back to the nodes that should be scheduled. This provides
+/// O(1) token allocation/deallocation and efficient event dispatch.
 pub struct IoDriver {
+    /// The main event polling mechanism
     poller: mio::Poll,
+
+    /// Reusable event buffer to avoid allocations
     events: mio::Events,
+
+    /// Maps mio tokens to node indices for event dispatch
     indices: Slab<NodeIndex>,
 }
 
 impl IoDriver {
+    /// Creates a new I/O driver with the specified event capacity.
     pub(crate) fn with_capacity(capacity: usize) -> Self {
         Self {
             poller: mio::Poll::new().expect("failed to create mio poll"),
@@ -55,6 +91,10 @@ impl IoDriver {
         }
     }
 
+    /// Registers a notifier that can wake a node from external contexts.
+    ///
+    /// Returns a `Notifier` handle that can be used from any thread to
+    /// schedule the associated node for execution.
     #[inline(always)]
     pub fn register_notifier(&mut self, idx: NodeIndex) -> Result<Notifier, io::Error> {
         let entry = self.indices.vacant_entry();
@@ -64,11 +104,16 @@ impl IoDriver {
         Ok(Notifier::new(waker, token))
     }
 
+    /// Removes a notifier and frees its token for reuse.
     #[inline(always)]
     pub fn deregister_notifier(&mut self, notifier: Notifier) {
         self.indices.remove(notifier.token.0);
     }
 
+    /// Registers an I/O source with specific interest flags.
+    ///
+    /// The source will be monitored for the specified events (readable, writable, etc.)
+    /// and the associated node will be scheduled when those events occur.
     #[inline(always)]
     pub fn register_source<S: Source>(
         &mut self,
@@ -85,6 +130,7 @@ impl IoDriver {
         Ok(IoSource::new(source, token))
     }
 
+    /// Deregisters an I/O source and returns its associated node index.
     #[inline(always)]
     pub fn deregister_source<S: Source>(
         &mut self,
@@ -94,6 +140,7 @@ impl IoDriver {
         Ok(self.indices.remove(source.token.0))
     }
 
+    /// Changes the interest flags for an already registered I/O source.
     #[inline(always)]
     pub fn reregister_source<S: Source>(
         &mut self,
@@ -105,6 +152,11 @@ impl IoDriver {
             .reregister(&mut source.source, source.token, interest)
     }
 
+    /// Polls for I/O events and schedules ready nodes.
+    ///
+    /// Checks for ready I/O events up to the specified timeout, then schedules
+    /// any nodes associated with ready sources. Uses epoch-based deduplication
+    /// to prevent scheduling the same node multiple times per cycle.
     #[inline(always)]
     pub(super) fn poll(
         &mut self,

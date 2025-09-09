@@ -32,7 +32,7 @@ impl Scheduler {
     }
 
     #[inline(always)]
-    pub fn schedule(&mut self, node_index: NodeIndex, depth: u32) {
+    pub(crate) fn schedule(&mut self, node_index: NodeIndex, depth: u32) {
         // We assert here since scheduling above
         // the current depth is undefined behavior
         // that can cause certain execution paths
