@@ -141,26 +141,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "reflex-core"
-version = "0.1.0"
-dependencies = [
- "enum-as-inner",
- "mio",
- "petgraph",
- "slab",
- "thiserror",
- "time",
-]
-
-[[package]]
-name = "reflex-rs"
-version = "0.1.0"
-
-[[package]]
-name = "reflex-std"
-version = "0.1.0"
-
-[[package]]
 name = "serde"
 version = "1.0.219"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -179,6 +159,26 @@ dependencies = [
  "quote",
  "syn",
 ]
+
+[[package]]
+name = "sheaf-core"
+version = "0.1.0"
+dependencies = [
+ "enum-as-inner",
+ "mio",
+ "petgraph",
+ "slab",
+ "thiserror",
+ "time",
+]
+
+[[package]]
+name = "sheaf-rs"
+version = "0.1.0"
+
+[[package]]
+name = "sheaf-std"
+version = "0.1.0"
 
 [[package]]
 name = "slab"

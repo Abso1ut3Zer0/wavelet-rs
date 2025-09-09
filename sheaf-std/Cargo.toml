@@ -1,5 +1,5 @@
 [package]
-name = "reflex-std"
+name = "sheaf-std"
 version = "0.1.0"
 edition = "2024"
 
