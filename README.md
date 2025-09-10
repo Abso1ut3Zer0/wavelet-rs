@@ -33,14 +33,17 @@ use wavelet::prelude::*;
 use std::time::Duration;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut executor = Executor::new();
+    let runtime = Runtime::builder()
+        .with_clock(PrecisionClock::new())
+        .with_mode(Sleep::new(Duration::from_millis(1)))
+        .build()?;
 
     // Create a data source
     let source = NodeBuilder::new(0u64)
         .on_init(|executor, _, idx| {
             executor.yield_driver().yield_now(idx);
         })
-        .build(&mut executor, |counter, _ctx| {
+        .build(runtime.executor(), |counter, _ctx| {
             *counter += 1;
             println!("Source: {}", counter);
             Control::Broadcast
@@ -49,18 +52,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create a processor that reacts to the source
     let _processor = NodeBuilder::new(String::new())
         .triggered_by(&source)
-        .build(&mut executor, |state, _ctx| {
+        .build(runtime.executor(), |state, _ctx| {
             *state = format!("Processed: {}", source.borrow());
             println!("{}", state);
             Control::Unchanged
         });
 
     // Run the graph
-    let runtime = Runtime::builder()
-        .with_clock(PrecisionClock::new())
-        .with_mode(Sleep::new(Duration::from_millis(1)))
-        .build()?;
-
     runtime.run_forever();
 }
 ```
@@ -76,7 +74,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ### Key Components
 
-```rust
+```rust, ignore
 // Build a computation graph
 let processor = NodeBuilder::new(ProcessorState::new())
     .triggered_by(&data_source)     // Execute when source changes
@@ -106,18 +104,18 @@ wavelet = { version = "0.1", features = ["full"] }
 
 Configure different implementations for different environments:
 
-```rust
+```rust, ignore
 use wavelet::factories::*;
 
 let data_source = match environment {
-    Environment::Production => KeyedFactory::default()
-        .attach(|executor, symbol| create_live_feed(executor, symbol)),
-    Environment::Test => KeyedFactory::default()
-        .attach(|executor, symbol| create_mock_feed(executor, symbol)),
+Environment::Production => KeyedFactory::default ()
+.attach( | executor, symbol| create_live_feed(executor, symbol)),
+Environment::Test => KeyedFactory::default ()
+.attach( | executor, symbol| create_mock_feed(executor, symbol)),
 };
 
 // Same graph construction code works with any configured factory
-let feed = data_source.get(&mut executor, "EURUSD".to_string());
+let feed = data_source.get( & mut executor, "EURUSD".to_string());
 ```
 
 ## Performance
@@ -125,7 +123,7 @@ let feed = data_source.get(&mut executor, "EURUSD".to_string());
 - **Latency**: Sub-microsecond node execution overhead
 - **Throughput**: Millions of events per second
 - **Memory**: Predictable allocation patterns
-- **CPU**: Configurable sleep/spin strategies for different workloads
+- **CPU**: Configurable sleep/spin/block strategies for different workloads
 
 ## Use Cases
 
@@ -135,50 +133,10 @@ Wavelet excels in domains requiring deterministic, low-latency processing:
 - **Real-time Analytics** - Live dashboards, alerting, stream aggregation
 - **IoT Processing** - Sensor data, device management, edge computing
 - **Protocol Handling** - Stateful network protocols, message parsing
-- **Media Processing** - Audio/video pipelines, real-time effects
-
-## Examples
-
-See the `examples/` directory for complete applications:
-
-- `basic_stream` - Simple data processing pipeline
-- `market_data` - Financial data processing with multiple symbols
-- `network_server` - TCP server with per-connection processing
-- `dependency_injection` - Using factories for environment configuration
-
-## Documentation
-
-- [API Documentation](https://docs.rs/wavelet)
-- [Architecture Guide](docs/architecture.md)
-- [Performance Guide](docs/performance.md)
-- [Migration Guide](docs/migration.md)
-
-## Comparison with Other Frameworks
-
-| Framework | Model             | Determinism | Latency | Complexity |
-|-----------|-------------------|-------------|---------|------------|
-| Wavelet   | Cooperative Graph | ✅           | < 1μs   | Low        |
-| Tokio     | Async Tasks       | ❌           | ~10μs   | Medium     |
-| Actix     | Actor System      | ❌           | ~5μs    | High       |
-| Timely    | Dataflow          | ✅           | ~1μs    | High       |
 
 ## Contributing
 
 We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 ## License
-
-Licensed under either of:
-
-- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE))
-- MIT License ([LICENSE-MIT](LICENSE-MIT))
-
-at your option.
-
-## Acknowledgments
-
-Wavelet draws inspiration from:
-
-- Timely Dataflow's deterministic execution model
-- Reactive Extensions' event composition patterns
-- Traditional signal processing graph architectures
+MIT License ([LICENSE-MIT](LICENSE-MIT))
