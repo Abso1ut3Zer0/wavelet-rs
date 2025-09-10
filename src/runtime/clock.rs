@@ -1,13 +1,17 @@
 mod historical;
 mod precision_clock;
+
+#[cfg(any(test, feature = "testing"))]
 mod test_clock;
 
 use std::time::Instant;
 
 pub use historical::HistoricalClock;
 pub use precision_clock::PrecisionClock;
-pub use test_clock::TestClock;
 pub use time::{Duration, OffsetDateTime};
+
+#[cfg(any(test, feature = "testing"))]
+pub use test_clock::TestClock;
 
 /// Represents a moment in time with both monotonic and wall clock components.
 ///

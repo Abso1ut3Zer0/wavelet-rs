@@ -328,24 +328,18 @@ where
     }
 }
 
-impl<M: ExecutionMode> Runtime<HistoricalClock, M> {
+impl Runtime<HistoricalClock, Spin> {
     pub fn run_until_completion(mut self) {
         while !self.clock.is_exhausted() {
             let state = self
                 .executor
-                .cycle(self.clock.trigger_time(), None)
+                .cycle(self.clock.trigger_time(), Some(std::time::Duration::ZERO))
                 .unwrap_or(ExecutorState::Running);
 
             if state.is_terminated() {
                 return;
             }
         }
-    }
-}
-
-impl<M: ExecutionMode> Runtime<TestClock, M> {
-    pub fn run_one_cycle(&mut self) -> ExecutorState {
-        self.cycle_once()
     }
 }
 
@@ -386,7 +380,15 @@ impl CycleOnce for Runtime<PrecisionClock, Block> {
     }
 }
 
-impl<M: ExecutionMode> CycleOnce for Runtime<TestClock, M> {
+#[cfg(feature = "testing")]
+impl Runtime<TestClock, Spin> {
+    pub fn run_one_cycle(&mut self) -> ExecutorState {
+        self.cycle_once()
+    }
+}
+
+#[cfg(feature = "testing")]
+impl CycleOnce for Runtime<TestClock, Spin> {
     #[inline(always)]
     fn cycle_once(&mut self) -> ExecutorState {
         self.executor

@@ -18,4 +18,5 @@ time = "0.3.42"
 default = ["runtime"]
 runtime = []
 factories = ["runtime"]
-full = ["runtime", "factories"]
+testing = ["runtime"]
+full = ["runtime", "factories", "testing"]
