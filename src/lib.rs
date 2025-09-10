@@ -58,13 +58,6 @@ pub enum Control {
 }
 
 pub mod prelude {
+    pub use crate::runtime::*;
     pub use crate::{Control, Relationship};
-
-    pub use crate::runtime::clock::Clock;
-    pub use crate::runtime::event_driver::{
-        EventDriver, Interest, IoDriver, Notifier, TimerDriver, TimerSource, YieldDriver,
-    };
-    pub use crate::runtime::executor::{ExecutionContext, Executor};
-    pub use crate::runtime::node::*;
-    pub use crate::runtime::Runtime;
 }

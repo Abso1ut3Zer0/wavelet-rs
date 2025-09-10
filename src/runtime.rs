@@ -1,8 +1,3 @@
-use crate::prelude::{Clock, Executor};
-use crate::runtime::clock::{HistoricalClock, PrecisionClock, TestClock};
-use crate::runtime::executor::ExecutorState;
-use std::time::Duration;
-
 pub mod clock;
 pub mod event_driver;
 pub mod executor;
@@ -11,7 +6,13 @@ pub mod graph;
 pub mod node;
 mod scheduler;
 
-const MINIMUM_TIMER_PRECISION: Duration = Duration::from_millis(1);
+pub use clock::*;
+pub use event_driver::*;
+pub use executor::*;
+pub use graph::*;
+pub use node::*;
+
+const MINIMUM_TIMER_PRECISION: std::time::Duration = std::time::Duration::from_millis(1);
 
 /// Marker trait for runtime execution strategies.
 ///
@@ -33,7 +34,7 @@ pub struct Spin;
 /// - Time until the next timer expires
 ///
 /// Good for most applications that need reasonable latency without burning CPU.
-pub struct Sleep(Duration);
+pub struct Sleep(std::time::Duration);
 
 /// Blocking execution mode that waits indefinitely for events.
 ///
@@ -49,8 +50,8 @@ impl Sleep {
     /// Creates a new Sleep execution mode with the specified maximum duration.
     ///
     /// The duration must be at least 1ms due to normal OS sleep limitations.
-    pub fn new(duration: Duration) -> Self {
-        assert!(duration >= Duration::from_millis(1));
+    pub fn new(duration: std::time::Duration) -> Self {
+        assert!(duration >= std::time::Duration::from_millis(1));
         Self(duration)
     }
 }
@@ -190,7 +191,7 @@ impl CycleOnce for Runtime<PrecisionClock, Spin> {
     #[inline(always)]
     fn cycle_once(&mut self) -> ExecutorState {
         self.executor
-            .cycle(self.clock.trigger_time(), Some(Duration::ZERO))
+            .cycle(self.clock.trigger_time(), Some(std::time::Duration::ZERO))
             .unwrap_or(ExecutorState::Running)
     }
 }
@@ -227,7 +228,7 @@ impl<M: ExecutionMode> CycleOnce for Runtime<TestClock, M> {
     #[inline(always)]
     fn cycle_once(&mut self) -> ExecutorState {
         self.executor
-            .cycle(self.clock.trigger_time(), Some(Duration::ZERO))
+            .cycle(self.clock.trigger_time(), Some(std::time::Duration::ZERO))
             .unwrap_or(ExecutorState::Running)
     }
 }
