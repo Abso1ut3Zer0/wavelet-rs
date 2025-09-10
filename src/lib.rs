@@ -1,7 +1,10 @@
-pub mod runtime;
-
 use enum_as_inner::EnumAsInner;
 pub use petgraph::prelude::NodeIndex;
+
+#[cfg(feature = "factories")]
+pub mod factory;
+#[cfg(feature = "runtime")]
+pub mod runtime;
 
 /// Defines how nodes relate to each other in the computation graph.
 ///
@@ -58,6 +61,11 @@ pub enum Control {
 }
 
 pub mod prelude {
-    pub use crate::runtime::*;
     pub use crate::{Control, Relationship};
+
+    #[cfg(feature = "runtime")]
+    pub use crate::runtime::*;
+
+    #[cfg(feature = "factories")]
+    pub use crate::factory::*;
 }

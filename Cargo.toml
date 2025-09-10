@@ -13,3 +13,9 @@ petgraph = "0.8.2"
 slab = "0.4.11"
 thiserror = "2.0.16"
 time = "0.3.42"
+
+[features]
+default = ["runtime"]
+runtime = []
+factories = ["runtime"]
+full = ["runtime", "factories"]
