@@ -12,10 +12,9 @@ runtimes or actor systems. Built around a computation graph where nodes represen
 data dependencies, wavelet provides:
 
 - **Deterministic execution** - Same inputs always produce the same execution order
-- **Cooperative scheduling** - Dependency-ordered execution without thread overhead
+- **Dependency-ordered processing** - Guaranteed that parent nodes are always processed before their children
 - **Event integration** - Unified I/O, timer, and yield event handling
 - **Dependency injection** - Build-time configuration for different environments
-- **Zero-cost abstractions** - Direct function calls with no hidden allocations
 
 ## Quick Start
 
@@ -118,13 +117,6 @@ Environment::Test => KeyedFactory::default ()
 let feed = data_source.get( & mut executor, "EURUSD".to_string());
 ```
 
-## Performance
-
-- **Latency**: Sub-microsecond node execution overhead
-- **Throughput**: Millions of events per second
-- **Memory**: Predictable allocation patterns
-- **CPU**: Configurable sleep/spin/block strategies for different workloads
-
 ## Use Cases
 
 Wavelet excels in domains requiring deterministic, low-latency processing:
@@ -139,4 +131,5 @@ Wavelet excels in domains requiring deterministic, low-latency processing:
 We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 ## License
+
 MIT License ([LICENSE](LICENSE))
