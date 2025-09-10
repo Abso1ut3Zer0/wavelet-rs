@@ -3,6 +3,7 @@ pub use petgraph::prelude::NodeIndex;
 
 #[cfg(feature = "factories")]
 pub mod factory;
+
 #[cfg(feature = "runtime")]
 pub mod runtime;
 
