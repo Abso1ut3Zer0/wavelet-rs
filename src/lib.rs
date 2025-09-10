@@ -3,9 +3,10 @@ pub use petgraph::prelude::NodeIndex;
 
 #[cfg(feature = "factories")]
 pub mod factory;
-
 #[cfg(feature = "runtime")]
 pub mod runtime;
+#[cfg(feature = "testing")]
+mod testing;
 
 /// Defines how nodes relate to each other in the computation graph.
 ///

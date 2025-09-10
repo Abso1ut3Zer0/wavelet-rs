@@ -287,6 +287,11 @@ impl<C: Clock, M: ExecutionMode> RuntimeBuilder<C, M> {
     }
 }
 
+#[cfg(feature = "testing")]
+pub type TestRuntime = Runtime<TestClock, Spin>;
+pub type RealtimeRuntime<M: ExecutionMode> = Runtime<PrecisionClock, M>;
+pub type HistoricalRuntime = Runtime<HistoricalClock, Spin>;
+
 /// A complete runtime instance that combines executor, clock, and execution mode.
 ///
 /// The `Runtime` orchestrates the execution loop by:
@@ -384,6 +389,10 @@ impl CycleOnce for Runtime<PrecisionClock, Block> {
 impl Runtime<TestClock, Spin> {
     pub fn run_one_cycle(&mut self) -> ExecutorState {
         self.cycle_once()
+    }
+
+    pub fn advance_clock(&mut self, duration: std::time::Duration) {
+        self.clock.advance(duration);
     }
 }
 
