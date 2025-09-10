@@ -139,4 +139,4 @@ Wavelet excels in domains requiring deterministic, low-latency processing:
 We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 ## License
-MIT License ([LICENSE-MIT](LICENSE-MIT))
+MIT License ([LICENSE](LICENSE))
