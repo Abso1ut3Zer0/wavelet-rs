@@ -1,3 +1,4 @@
+use crate::runtime::CycleFn;
 use crate::runtime::event_driver::Notifier;
 use crate::runtime::executor::{ExecutionContext, Executor};
 use crate::runtime::garbage_collector::GarbageCollector;
@@ -259,12 +260,38 @@ impl<T: 'static> Drop for NodeInner<T> {
 /// - `parents`: Dependency relationships (parent index, depth, relationship type)
 /// - `on_init`: Called once when the node is first added to graph
 /// - `on_drop`: Called when the node is being dropped
+///
+/// # Panic Handling
+///
+/// By default, node cycle functions are wrapped in
+/// [`std::panic::catch_unwind`]. If a panic occurs during execution:
+/// - The panic is isolated to the node
+/// - The node is marked for garbage collection (`Control::Sweep`)
+/// - The rest of the graph continues uninterrupted
+///
+/// This provides fault tolerance with negligible overhead on the
+/// non-panic path. If you prefer fail-fast semantics instead, use
+/// [`NodeBuilder::allow_panic`], which disables isolation and lets
+/// panics propagate normally.
+///
+/// # Author Responsibility
+///
+/// While the runtime isolates panics at the node boundary, authors are
+/// responsible for ensuring their cycle logic does not leave behind
+/// inconsistent states if unwound mid-execution. To avoid logic errors:
+/// - Perform work in locals and commit results to the node state at the end
+/// - Avoid external side effects (I/O, scheduling) before committing
+/// - Do not leak partially-mutated references across cycles
+///
+/// Following these rules makes it safe for the runtime to isolate panics
+/// without corrupting downstream computation.
 pub struct NodeBuilder<T: 'static> {
     data: T,
     name: Option<String>,
     parents: Vec<(NodeIndex, u32, Relationship)>,
     on_init: Option<Box<dyn FnMut(&mut Executor, &mut T, NodeIndex) + 'static>>,
     on_drop: Option<OnDrop<T>>,
+    allow_panic: bool,
 }
 
 impl<T: 'static> NodeBuilder<T> {
@@ -275,10 +302,12 @@ impl<T: 'static> NodeBuilder<T> {
             parents: Vec::new(),
             on_init: None,
             on_drop: None,
+            allow_panic: false,
         }
     }
 
-    pub fn with_name(mut self, name: String) -> Self {
+    /// Sets the `name` field of the struct to the provided `name` value and returns the updated instance.
+    pub fn named(mut self, name: String) -> Self {
         self.name = Some(name);
         self
     }
@@ -379,6 +408,13 @@ impl<T: 'static> NodeBuilder<T> {
         self
     }
 
+    /// Sets whether the node is allowed to panic during execution,
+    /// i.e., is not caught by a panic unwind.
+    pub fn allow_panic(mut self, allow_panic: bool) -> Self {
+        self.allow_panic = allow_panic;
+        self
+    }
+
     /// Builds the node and inserts it into the graph, returning a handle.
     ///
     /// This completes the node creation process by:
@@ -418,16 +454,35 @@ impl<T: 'static> NodeBuilder<T> {
 
         {
             let state = node.downgrade();
-            let cycle_fn = Box::new(move |ctx: &mut ExecutionContext| match state.upgrade() {
-                Some(mut state) => {
-                    let control = cycle_fn(state.borrow_mut(), ctx);
-                    if control.is_broadcast() {
-                        state.set_mut_epoch(ctx.epoch());
+            let cycle_fn: CycleFn = if self.allow_panic {
+                Box::new(move |ctx: &mut ExecutionContext| match state.upgrade() {
+                    Some(mut state) => {
+                        let ctrl = cycle_fn(state.borrow_mut(), ctx);
+                        if ctrl.is_broadcast() {
+                            state.set_mut_epoch(ctx.epoch());
+                        }
+                        ctrl
                     }
-                    control
-                }
-                None => Control::Sweep,
-            });
+                    None => Control::Sweep,
+                })
+            } else {
+                Box::new(move |ctx: &mut ExecutionContext| match state.upgrade() {
+                    Some(mut state) => {
+                        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                            cycle_fn(state.borrow_mut(), ctx)
+                        })) {
+                            Ok(ctrl) => {
+                                if ctrl.is_broadcast() {
+                                    state.set_mut_epoch(ctx.epoch());
+                                }
+                                ctrl
+                            }
+                            Err(_) => Control::Sweep,
+                        }
+                    }
+                    None => Control::Sweep,
+                })
+            };
 
             let idx = executor.graph().add_node(NodeContext::new(cycle_fn, depth));
             let inner = node.get_mut();
@@ -509,13 +564,29 @@ impl<T: 'static> NodeBuilder<T> {
             .unwrap_or(0);
 
         let mut state = node.clone();
-        let cycle_fn = Box::new(move |ctx: &mut ExecutionContext| {
-            let control = cycle_fn(state.borrow_mut(), ctx);
-            if control.is_broadcast() {
-                state.set_mut_epoch(ctx.epoch());
-            }
-            control
-        });
+        let cycle_fn: CycleFn = if self.allow_panic {
+            Box::new(move |ctx: &mut ExecutionContext| {
+                let ctrl = cycle_fn(state.borrow_mut(), ctx);
+                if ctrl.is_broadcast() {
+                    state.set_mut_epoch(ctx.epoch());
+                }
+                ctrl
+            })
+        } else {
+            Box::new(move |ctx: &mut ExecutionContext| {
+                match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    cycle_fn(state.borrow_mut(), ctx)
+                })) {
+                    Ok(ctrl) => {
+                        if ctrl.is_broadcast() {
+                            state.set_mut_epoch(ctx.epoch());
+                        }
+                        ctrl
+                    }
+                    Err(_) => Control::Sweep,
+                }
+            })
+        };
 
         let idx = executor.graph().add_node(NodeContext::new(cycle_fn, depth));
         let inner = node.get_mut();

@@ -953,4 +953,48 @@ mod tests {
         assert_eq!(executor.graph.node_count(), 1); // root, since spawned gets swept
         assert!(spawned.get()); // spawned now called
     }
+
+    #[test]
+    fn test_node_spawn_with_cleanup_on_panic() {
+        let mut executor = Executor::new();
+        let mut clock = TestClock::new();
+
+        let spawned = Rc::new(Cell::new(false));
+        let _root = NodeBuilder::new(spawned.clone())
+            .on_init(|executor, _, idx| {
+                executor.yield_driver().yield_now(idx);
+            })
+            .on_drop(|_| {
+                println!("removing root");
+            })
+            .build(&mut executor, |spawned, ctx| {
+                let flag = spawned.clone();
+                ctx.spawn_subgraph(move |ex| {
+                    NodeBuilder::new(flag)
+                        .on_init(|executor, _, idx| {
+                            executor.yield_driver().yield_now(idx);
+                        })
+                        .spawn(ex, |data, _| {
+                            data.set(true);
+                            panic!("panic!");
+                            #[allow(unreachable_code)]
+                            Control::Unchanged
+                        })
+                });
+                Control::Broadcast
+            });
+
+        assert_eq!(executor.graph.node_count(), 1);
+        executor
+            .cycle(clock.trigger_time(), Some(Duration::ZERO))
+            .unwrap();
+        assert_eq!(executor.graph.node_count(), 2); // root + spawned
+        assert!(!spawned.get()); // spawned not yet called
+
+        executor
+            .cycle(clock.trigger_time(), Some(Duration::ZERO))
+            .unwrap();
+        assert_eq!(executor.graph.node_count(), 1); // root, since spawned gets swept
+        assert!(spawned.get()); // spawned now called
+    }
 }
