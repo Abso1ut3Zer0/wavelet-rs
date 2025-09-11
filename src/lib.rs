@@ -8,6 +8,13 @@ pub mod runtime;
 #[cfg(feature = "testing")]
 pub mod testing;
 
+// TODO list:
+//   - Channel to communicate with graph node from background thread
+//   - Timer driver improvements
+//   - Improve docs around Observe relationships + patterns + examples
+//   - Subgraph factory traits
+//   - Trace logging + metrics capable of tracking subgraphs
+
 /// Defines how nodes relate to each other in the computation graph.
 ///
 /// Relationships determine when and how changes propagate between nodes.
