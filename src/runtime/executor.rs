@@ -172,6 +172,11 @@ impl<'a> ExecutionContext<'a> {
         unsafe { (&mut *self.scheduler.get()).schedule(node.index(), node.depth()) }
     }
 
+    /// Returns the epoch value associated with the current execution cycle.
+    pub const fn epoch(&self) -> usize {
+        self.epoch
+    }
+
     /// Checks if a parent node has mutated in the current execution cycle.
     ///
     /// Used by nodes with `Observe` relationships to determine when their
@@ -257,6 +262,14 @@ impl Executor {
             gc: GarbageCollector::new(),
             epoch: 0,
         }
+    }
+
+    /// Provides another way to check if a node has mutated.
+    ///
+    /// This is typically used for testing scenarios.
+    #[inline(always)]
+    pub fn has_mutated<T>(&self, node: &Node<T>) -> bool {
+        node.mut_epoch() == self.epoch
     }
 
     /// Provides access to the I/O event driver for source registration.

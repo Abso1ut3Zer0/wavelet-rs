@@ -138,7 +138,7 @@ impl<'a, K: Hash + Eq, T: 'static> KeyedFactoryInner<'a, K, T> {
     }
 
     fn get(&mut self, executor: &mut Executor, key: K) -> Node<T> {
-        let mut entry = self.cache.entry(key);
+        let entry = self.cache.entry(key);
         match entry {
             Entry::Occupied(node) => node.get().to_owned(),
             Entry::Vacant(entry) => {

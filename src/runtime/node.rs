@@ -155,6 +155,13 @@ impl<T: 'static> Node<T> {
     pub(crate) fn mut_epoch(&self) -> usize {
         self.get().mut_epoch
     }
+
+    /// Internal method to set the epoch if the node
+    /// has mutated.
+    #[inline(always)]
+    fn set_mut_epoch(&mut self, epoch: usize) {
+        self.get_mut().mut_epoch = epoch;
+    }
 }
 
 impl<T: 'static> Clone for Node<T> {
@@ -412,7 +419,13 @@ impl<T: 'static> NodeBuilder<T> {
         {
             let state = node.downgrade();
             let cycle_fn = Box::new(move |ctx: &mut ExecutionContext| match state.upgrade() {
-                Some(state) => cycle_fn(state.borrow_mut(), ctx),
+                Some(mut state) => {
+                    let control = cycle_fn(state.borrow_mut(), ctx);
+                    if control.is_broadcast() {
+                        state.set_mut_epoch(ctx.epoch());
+                    }
+                    control
+                }
                 None => Control::Sweep,
             });
 
@@ -495,9 +508,14 @@ impl<T: 'static> NodeBuilder<T> {
             .map(|d| d + 1)
             .unwrap_or(0);
 
-        let state = node.clone();
-        let cycle_fn =
-            Box::new(move |ctx: &mut ExecutionContext| cycle_fn(state.borrow_mut(), ctx));
+        let mut state = node.clone();
+        let cycle_fn = Box::new(move |ctx: &mut ExecutionContext| {
+            let control = cycle_fn(state.borrow_mut(), ctx);
+            if control.is_broadcast() {
+                state.set_mut_epoch(ctx.epoch());
+            }
+            control
+        });
 
         let idx = executor.graph().add_node(NodeContext::new(cycle_fn, depth));
         let inner = node.get_mut();

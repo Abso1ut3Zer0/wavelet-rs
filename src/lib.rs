@@ -6,7 +6,7 @@ pub mod factory;
 #[cfg(feature = "runtime")]
 pub mod runtime;
 #[cfg(feature = "testing")]
-mod testing;
+pub mod testing;
 
 /// Defines how nodes relate to each other in the computation graph.
 ///

@@ -52,3 +52,29 @@ pub fn create_push_node<T: 'static>(executor: &mut Executor, data: T) -> Node<Pu
         })
         .build(executor, |_, _| Control::Broadcast)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_push_node() {
+        let mut runtime = TestRuntime::new();
+        let node = create_push_node(runtime.executor(), 0);
+
+        let parent = node.clone();
+        let child = NodeBuilder::new("0".to_string()).triggered_by(&node).build(
+            runtime.executor(),
+            move |data, _| {
+                *data = parent.borrow().data().to_string();
+                Control::Broadcast
+            },
+        );
+
+        node.borrow().push_with_cycle(&mut runtime, 2);
+        println!("node data: {}", child.borrow());
+        println!("child epoch: {:?}", child.mut_epoch());
+        assert!(runtime.executor().has_mutated(&child));
+        assert_eq!(child.borrow().as_str(), "2");
+    }
+}

@@ -289,6 +289,7 @@ impl<C: Clock, M: ExecutionMode> RuntimeBuilder<C, M> {
 
 #[cfg(feature = "testing")]
 pub type TestRuntime = Runtime<TestClock, Spin>;
+#[allow(type_alias_bounds)]
 pub type RealtimeRuntime<M: ExecutionMode> = Runtime<PrecisionClock, M>;
 pub type HistoricalRuntime = Runtime<HistoricalClock, Spin>;
 
@@ -319,6 +320,17 @@ impl<C: Clock, M: ExecutionMode> Runtime<C, M> {
 
     pub fn executor(&mut self) -> &mut Executor {
         &mut self.executor
+    }
+}
+
+#[cfg(feature = "testing")]
+impl Runtime<TestClock, Spin> {
+    pub fn new() -> Self {
+        Self::builder()
+            .with_clock(TestClock::new())
+            .with_mode(Spin)
+            .build()
+            .unwrap()
     }
 }
 
