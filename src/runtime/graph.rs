@@ -19,6 +19,10 @@ pub(crate) struct NodeContext {
 
     /// Node's depth level in the dependency graph
     pub(crate) depth: u32,
+
+    /// Indicates whether the node has been poisoned due to a panic
+    /// or an upstream node being garbage collected.
+    pub(crate) poisoned: bool,
 }
 
 impl NodeContext {
@@ -30,12 +34,19 @@ impl NodeContext {
             cycle_fn,
             sched_epoch: 0,
             depth,
+            poisoned: false,
         }
     }
 
     /// Executes the node's cycle function with the provided execution context.
     #[inline(always)]
     fn cycle(&mut self, ctx: &mut ExecutionContext) -> Control {
+        // Return early if the node is poisoned, so we
+        // ensure the node gets cleaned up.
+        if self.poisoned {
+            return Control::Sweep;
+        }
+
         (self.cycle_fn)(ctx)
     }
 }
@@ -93,10 +104,27 @@ impl Graph {
             .map(|edge| edge.target())
     }
 
+    /// Returns an iterator over all child nodes.
+    ///
+    /// Used during broadcast propagation, particularly when we need to clean
+    /// up child relationships in the event of a `Control::Sweep`.
+    #[inline(always)]
+    pub(crate) fn edges(&self, node_index: NodeIndex) -> impl Iterator<Item = NodeIndex> {
+        self.inner
+            .edges_directed(node_index, petgraph::Direction::Outgoing)
+            .map(|edge| edge.target())
+    }
+
     /// Executes the cycle function for the specified node.
     #[inline(always)]
     pub(crate) fn cycle(&mut self, ctx: &mut ExecutionContext, node_index: NodeIndex) -> Control {
         self.inner[node_index].cycle(ctx)
+    }
+
+    /// Mark a node as poisoned.
+    #[inline(always)]
+    pub(crate) fn mark_poisoned(&mut self, node_index: NodeIndex) {
+        self.inner[node_index].poisoned = true;
     }
 
     /// Adds a new node to the graph and returns its stable index.

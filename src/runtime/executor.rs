@@ -445,6 +445,8 @@ impl Executor {
             ctx.set_current(node_idx);
             match self.graph.cycle(&mut ctx, node_idx) {
                 Control::Broadcast => {
+                    // Collect all triggering edges for the current node,
+                    // then schedule the children for execution.
                     self.edge_buffer
                         .extend(self.graph.triggering_edges(node_idx));
                     self.edge_buffer.drain(..).for_each(|child| {
@@ -459,7 +461,18 @@ impl Executor {
                     // do nothing
                 }
                 Control::Sweep => {
+                    // Mark the current node for cleanup, poison all children, then schedule
+                    // them to be cleaned up when they are processed later in the cycle.
                     self.gc.mark_for_sweep(node_idx);
+                    self.edge_buffer.extend(self.graph.edges(node_idx));
+                    self.edge_buffer.drain(..).for_each(|child| {
+                        self.graph.mark_poisoned(child);
+                        self.graph
+                            .can_schedule(child, self.epoch)
+                            .map(|depth| unsafe {
+                                (&mut *self.scheduler.get()).schedule(child, depth);
+                            });
+                    });
                 }
                 Control::Terminate => {
                     return Ok(ExecutorState::Terminated); // inform the runtime that we should exit
@@ -996,5 +1009,57 @@ mod tests {
             .unwrap();
         assert_eq!(executor.graph.node_count(), 1); // root, since spawned gets swept
         assert!(spawned.get()); // spawned now called
+    }
+
+    #[test]
+    fn test_garbage_collection_on_poisoned() {
+        let mut executor = Executor::new();
+        let mut clock = TestClock::new();
+
+        let gc_count = Rc::new(Cell::new(0));
+        let node1 = NodeBuilder::new(gc_count.clone())
+            .on_init(|executor, _, idx| {
+                executor.yield_driver().yield_now(idx);
+            })
+            .on_drop(|data| {
+                println!("removing node1");
+                data.update(|count| count + 1);
+            })
+            .build(&mut executor, |_, _| {
+                // panic ahead of downstream child nodes,
+                // which should trigger garbage collection
+                // for the entire subgraph
+                panic!("panic!");
+                #[allow(unreachable_code)]
+                Control::Broadcast
+            });
+
+        let node2 = NodeBuilder::new(gc_count.clone())
+            .triggered_by(&node1)
+            .on_drop(|data| {
+                println!("removing node2");
+                data.update(|count| count + 1);
+            })
+            .build(&mut executor, move |_, _| {
+                println!("node1 data: {}", node1.borrow().get());
+                Control::Broadcast
+            });
+
+        NodeBuilder::new(gc_count.clone())
+            .triggered_by(&node2)
+            .on_drop(|data| {
+                println!("removing node3");
+                data.update(|count| count + 1);
+            })
+            .spawn(&mut executor, move |_, _| {
+                println!("node2 data: {}", node2.borrow().get());
+                Control::Broadcast
+            });
+
+        assert_eq!(executor.graph.node_count(), 3);
+        executor
+            .cycle(clock.trigger_time(), Some(Duration::ZERO))
+            .unwrap();
+        assert_eq!(executor.graph.node_count(), 0);
     }
 }
