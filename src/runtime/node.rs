@@ -336,6 +336,19 @@ impl<T: 'static> NodeBuilder<T> {
         self
     }
 
+    /// Adds multiple dependency relationships to other nodes with
+    /// the same relationship type.
+    #[inline]
+    pub fn add_many_relationships<'a, P: 'static>(
+        self,
+        parents: impl IntoIterator<Item = &'a Node<P>>,
+        relationship: Relationship,
+    ) -> Self {
+        parents
+            .into_iter()
+            .fold(self, |s, parent| s.add_relationship(parent, relationship))
+    }
+
     /// Creates a `Trigger` relationship with the parent node.
     ///
     /// The new node will be automatically scheduled whenever the parent
@@ -344,6 +357,15 @@ impl<T: 'static> NodeBuilder<T> {
     #[inline]
     pub fn triggered_by<P>(self, parent: &Node<P>) -> Self {
         self.add_relationship(parent, Relationship::Trigger)
+    }
+
+    /// Creates multiple `Trigger` relationships.
+    #[inline]
+    pub fn triggered_by_many<'a, P: 'static>(
+        self,
+        parents: impl IntoIterator<Item = &'a Node<P>>,
+    ) -> Self {
+        self.add_many_relationships(parents, Relationship::Trigger)
     }
 
     /// Creates an `Observe` relationship with the parent node.
@@ -355,6 +377,15 @@ impl<T: 'static> NodeBuilder<T> {
     #[inline]
     pub fn observer_of<P>(self, parent: &Node<P>) -> Self {
         self.add_relationship(parent, Relationship::Observe)
+    }
+
+    /// Creates multiple `Observe` relationships.
+    #[inline]
+    pub fn observer_of_many<'a, P: 'static>(
+        self,
+        parents: impl IntoIterator<Item = &'a Node<P>>,
+    ) -> Self {
+        self.add_many_relationships(parents, Relationship::Observe)
     }
 
     /// Sets a callback to run when the node is first added to the graph.
