@@ -78,14 +78,14 @@ mod tests {
         let mut scheduler = Scheduler::new();
         scheduler.resize(5);
 
-        scheduler.schedule(NodeIndex::from(0), 0);
-        scheduler.schedule(NodeIndex::from(1), 1);
-        scheduler.schedule(NodeIndex::from(2), 4);
-        scheduler.schedule(NodeIndex::from(3), 2);
-        scheduler.schedule(NodeIndex::from(4), 3);
-        scheduler.schedule(NodeIndex::from(5), 1);
-        scheduler.schedule(NodeIndex::from(6), 2);
-        scheduler.schedule(NodeIndex::from(7), 4);
+        let _ =scheduler.schedule(NodeIndex::from(0), 0);
+        let _ =scheduler.schedule(NodeIndex::from(1), 1);
+        let _ =scheduler.schedule(NodeIndex::from(2), 4);
+        let _ =scheduler.schedule(NodeIndex::from(3), 2);
+        let _ =scheduler.schedule(NodeIndex::from(4), 3);
+        let _ =scheduler.schedule(NodeIndex::from(5), 1);
+        let _ =scheduler.schedule(NodeIndex::from(6), 2);
+        let _ =scheduler.schedule(NodeIndex::from(7), 4);
 
         // rank 0
         let item = scheduler.pop();
@@ -178,8 +178,8 @@ mod tests {
         let mut scheduler = Scheduler::new();
         scheduler.resize(3);
 
-        scheduler.schedule(NodeIndex::from(0), 0);
-        scheduler.schedule(NodeIndex::from(2), 2);
+        let _ =scheduler.schedule(NodeIndex::from(0), 0);
+        let _ =scheduler.schedule(NodeIndex::from(2), 2);
         // Node A never scheduled (observe)
 
         let item = scheduler.pop();
