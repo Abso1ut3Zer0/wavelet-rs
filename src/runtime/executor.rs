@@ -1035,7 +1035,7 @@ mod tests {
             });
 
         let node2 = NodeBuilder::new(gc_count.clone())
-            .triggered_by(&node1)
+            .observer_of(&node1)
             .on_drop(|data| {
                 println!("removing node2");
                 data.update(|count| count + 1);
@@ -1046,7 +1046,7 @@ mod tests {
             });
 
         NodeBuilder::new(gc_count.clone())
-            .triggered_by(&node2)
+            .observer_of(&node2)
             .on_drop(|data| {
                 println!("removing node3");
                 data.update(|count| count + 1);
