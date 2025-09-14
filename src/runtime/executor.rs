@@ -1017,6 +1017,12 @@ mod tests {
         let mut clock = TestClock::new();
 
         let gc_count = Rc::new(Cell::new(0));
+        let node0 = NodeBuilder::new(0)
+            .on_init(|ex, _, idx| {
+                ex.yield_driver().yield_now(idx);
+            })
+            .build(&mut executor, |_, _| Control::Broadcast);
+
         let node1 = NodeBuilder::new(gc_count.clone())
             .on_init(|executor, _, idx| {
                 executor.yield_driver().yield_now(idx);
@@ -1035,6 +1041,7 @@ mod tests {
             });
 
         let node2 = NodeBuilder::new(gc_count.clone())
+            .triggered_by(&node0)
             .observer_of(&node1)
             .on_drop(|data| {
                 println!("removing node2");
@@ -1056,10 +1063,10 @@ mod tests {
                 Control::Broadcast
             });
 
-        assert_eq!(executor.graph.node_count(), 3);
+        assert_eq!(executor.graph.node_count(), 4);
         executor
             .cycle(clock.trigger_time(), Some(Duration::ZERO))
             .unwrap();
-        assert_eq!(executor.graph.node_count(), 0);
+        assert_eq!(executor.graph.node_count(), 1);
     }
 }
