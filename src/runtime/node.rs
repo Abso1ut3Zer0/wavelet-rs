@@ -6,6 +6,7 @@ use crate::runtime::graph::NodeContext;
 use crate::{Control, Relationship};
 use petgraph::prelude::NodeIndex;
 use std::cell::UnsafeCell;
+use std::collections::HashSet;
 use std::io;
 use std::rc::{Rc, Weak};
 
@@ -288,7 +289,7 @@ impl<T: 'static> Drop for NodeInner<T> {
 pub struct NodeBuilder<T: 'static> {
     data: T,
     name: Option<String>,
-    parents: Vec<(NodeIndex, u32, Relationship)>,
+    parents: HashSet<(NodeIndex, u32, Relationship)>,
     on_init: Option<Box<dyn FnMut(&mut Executor, &mut T, NodeIndex) + 'static>>,
     on_drop: Option<OnDrop<T>>,
     allow_panic: bool,
@@ -299,7 +300,7 @@ impl<T: 'static> NodeBuilder<T> {
         Self {
             data,
             name: None,
-            parents: Vec::new(),
+            parents: HashSet::new(),
             on_init: None,
             on_drop: None,
             allow_panic: false,
@@ -324,8 +325,14 @@ impl<T: 'static> NodeBuilder<T> {
     /// - `relationship`: How this node should react to parent changes
     #[inline]
     pub fn add_relationship<P>(mut self, parent: &Node<P>, relationship: Relationship) -> Self {
+        assert!(
+            !self
+                .parents
+                .contains(&(parent.index(), parent.depth(), relationship)),
+            "cannot add duplicate relationship"
+        );
         self.parents
-            .push((parent.index(), parent.depth(), relationship));
+            .insert((parent.index(), parent.depth(), relationship));
         self
     }
 
