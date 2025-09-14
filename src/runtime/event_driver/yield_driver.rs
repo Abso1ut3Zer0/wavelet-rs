@@ -54,7 +54,7 @@ impl YieldDriver {
     pub(crate) fn poll(&mut self, graph: &mut Graph, scheduler: &mut Scheduler, epoch: usize) {
         self.indices.drain(..).for_each(|idx| {
             if let Some(depth) = graph.can_schedule(idx, epoch) {
-                scheduler.schedule(idx, depth);
+                let _ = scheduler.schedule(idx, depth);
             }
         })
     }

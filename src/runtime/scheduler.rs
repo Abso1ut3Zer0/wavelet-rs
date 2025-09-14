@@ -3,6 +3,10 @@ use std::collections::VecDeque;
 
 const INITIAL_CAPACITY: usize = 256;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("cannot schedule a node above the current processing depth")]
+pub struct SchedulerError;
+
 #[derive(Debug)]
 pub struct Scheduler {
     multi_queue: Vec<VecDeque<NodeIndex>>,
@@ -32,17 +36,21 @@ impl Scheduler {
     }
 
     #[inline(always)]
-    pub(crate) fn schedule(&mut self, node_index: NodeIndex, depth: u32) {
-        // We assert here since scheduling above
-        // the current depth is undefined behavior
-        // that can cause certain execution paths
-        // to never run. This can lead to dropped
-        // messages in processing.
-        assert!(
-            (depth as usize) >= self.curr_depth,
-            "cannot schedule at a depth above the current queue"
-        );
+    pub(crate) fn schedule(
+        &mut self,
+        node_index: NodeIndex,
+        depth: u32,
+    ) -> Result<(), SchedulerError> {
+        // Scheduling above the current depth is
+        // considered undefined behavior that can
+        // cause certain execution paths to never
+        // run. This can lead to dropped messages
+        // in processing.
+        if depth as usize >= self.curr_depth {
+            return Err(SchedulerError);
+        }
         self.multi_queue[depth as usize].push_back(node_index);
+        Ok(())
     }
 
     #[inline(always)]

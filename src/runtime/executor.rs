@@ -5,7 +5,7 @@ use crate::runtime::event_driver::{EventDriver, IoDriver, IoSource, TimerDriver,
 use crate::runtime::garbage_collector::GarbageCollector;
 use crate::runtime::graph::Graph;
 use crate::runtime::node::Node;
-use crate::runtime::scheduler::Scheduler;
+use crate::runtime::scheduler::{Scheduler, SchedulerError};
 use enum_as_inner::EnumAsInner;
 use mio::Interest;
 use mio::event::Source;
@@ -168,7 +168,7 @@ impl<'a> ExecutionContext<'a> {
     /// Note: this call will panic if you are scheduling a node at a depth
     /// higher than the current depth in the graph.
     #[inline(always)]
-    pub fn schedule_node<T>(&mut self, node: &Node<T>) {
+    pub fn schedule_node<T>(&mut self, node: &Node<T>) -> Result<(), SchedulerError> {
         unsafe { (&mut *self.scheduler.get()).schedule(node.index(), node.depth()) }
     }
 
@@ -470,7 +470,7 @@ impl Executor {
                         self.graph
                             .can_schedule(child, self.epoch)
                             .map(|depth| unsafe {
-                                (&mut *self.scheduler.get()).schedule(child, depth);
+                                let _ = (&mut *self.scheduler.get()).schedule(child, depth);
                             });
                     });
                 }

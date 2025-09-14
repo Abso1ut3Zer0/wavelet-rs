@@ -170,7 +170,7 @@ impl IoDriver {
         self.events.iter().for_each(|event| {
             let node_index = self.indices[event.token().0];
             if let Some(depth) = graph.can_schedule(node_index, epoch) {
-                scheduler.schedule(node_index, depth)
+                let _ = scheduler.schedule(node_index, depth).unwrap();
             }
         });
         Ok(())

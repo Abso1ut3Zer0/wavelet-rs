@@ -14,6 +14,7 @@ pub mod testing;
 //   - Improve docs around Observe relationships + patterns + examples
 //   - Subgraph factory traits
 //   - Trace logging + metrics capable of tracking subgraphs
+//   - Use error when scheduling incorrectly rather than assert
 
 /// Defines how nodes relate to each other in the computation graph.
 ///

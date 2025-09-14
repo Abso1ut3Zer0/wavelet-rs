@@ -110,7 +110,7 @@ impl TimerDriver {
             if entry.key().when <= now {
                 let (_, node_idx) = entry.remove_entry();
                 if let Some(depth) = graph.can_schedule(node_idx, epoch) {
-                    scheduler.schedule(node_idx, depth);
+                    let _ = scheduler.schedule(node_idx, depth);
                 }
                 continue;
             }
