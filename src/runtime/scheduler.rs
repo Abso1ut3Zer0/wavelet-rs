@@ -46,7 +46,7 @@ impl Scheduler {
         // cause certain execution paths to never
         // run. This can lead to dropped messages
         // in processing.
-        if depth as usize >= self.curr_depth {
+        if (depth as usize) < self.curr_depth {
             return Err(SchedulerError);
         }
         self.multi_queue[depth as usize].push_back(node_index);
