@@ -215,4 +215,25 @@ mod tests {
         assert!(executor.has_mutated(&node));
         assert_eq!(*node.borrow(), "3");
     }
+
+    #[test]
+    fn test_channel_blocking_send() {
+        let mut executor = Executor::new();
+        let mut clock = TestClock::new();
+
+        let (node, tx) = NodeBuilder::new("25".to_string())
+            .build_with_channel(&mut executor, 1, |this, _, rx| {
+                let item = rx.try_receive().unwrap();
+                *this = format!("{}", item);
+                Control::Broadcast
+            })
+            .unwrap();
+
+        tx.blocking_send(1).unwrap();
+        executor
+            .cycle(clock.trigger_time(), Some(Duration::ZERO))
+            .unwrap();
+        assert!(executor.has_mutated(&node));
+        assert_eq!(*node.borrow(), "1");
+    }
 }
