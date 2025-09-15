@@ -1,6 +1,8 @@
 use enum_as_inner::EnumAsInner;
 pub use petgraph::prelude::NodeIndex;
 
+#[cfg(feature = "channel")]
+pub mod channel;
 #[cfg(feature = "factories")]
 pub mod factory;
 #[cfg(feature = "runtime")]

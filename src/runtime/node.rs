@@ -10,6 +10,9 @@ use std::collections::HashSet;
 use std::io;
 use std::rc::{Rc, Weak};
 
+#[cfg(feature = "channel")]
+use crate::channel::{Receiver, Sender, new_channel};
+
 type OnDrop<T> = Box<dyn FnMut(&mut T) + 'static>;
 
 /// A smart pointer to a node in the computation graph.
@@ -568,6 +571,150 @@ impl<T: 'static> NodeBuilder<T> {
         let node = self.build(executor, cycle_fn);
         let notifier = executor.io_driver().register_notifier(node.index())?;
         Ok((node, notifier))
+    }
+
+    #[cfg(feature = "channel")]
+    /// Builds a node with an associated MPSC channel for external message passing.
+    ///
+    /// This method creates a node that can receive messages from outside the graph through
+    /// a bounded MPSC channel. The channel is automatically integrated with the executor's
+    /// I/O driver, so messages trigger node execution without polling.
+    ///
+    /// # Type Parameters
+    ///
+    /// * `U` - The type of messages that can be sent through the channel
+    /// * `F` - The cycle function that processes both node state and channel messages
+    ///
+    /// # Arguments
+    ///
+    /// * `executor` - The executor managing the graph
+    /// * `capacity` - The channel's buffer capacity (must be > 0)
+    /// * `cycle_fn` - Function called on each node execution, receiving:
+    ///   - `&mut T`: Mutable reference to the node's state
+    ///   - `&mut ExecutionContext`: The execution context for scheduling and I/O
+    ///   - `&Receiver<U>`: Channel receiver for incoming messages
+    ///
+    /// # Returns
+    ///
+    /// Returns a tuple containing:
+    /// - The constructed `Node<T>` handle
+    /// - A `Sender<U>` for sending messages to the node
+    ///
+    /// Returns an `io::Error` if the notifier registration fails.
+    ///
+    /// # Channel Behavior
+    ///
+    /// - Messages sent through the `Sender` automatically wake the node for processing
+    /// - The channel is bounded with the specified capacity
+    /// - When all senders are dropped, the receiver will report the channel as closed
+    /// - The channel receiver is accessible only within the cycle function
+    ///
+    /// # Example
+    ///
+    /// ```rust, ignore
+    /// let (node, tx) = NodeBuilder::new(MyState::default())
+    ///     .triggered_by(&parent_node)
+    ///     .build_with_channel(executor, 100, |state, ctx, rx| {
+    ///         // Process any pending messages
+    ///         while let Ok(msg) = rx.try_receive() {
+    ///             state.process_message(msg);
+    ///         }
+    ///
+    ///         // Return control flow based on state changes
+    ///         if state.has_changes() {
+    ///             Control::Broadcast
+    ///         } else {
+    ///             Control::Unchanged
+    ///         }
+    ///     })?;
+    ///
+    /// // External code can now send messages to the node
+    /// tx.send(MyMessage::new()).unwrap();
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// Panics if `capacity` is 0.
+    ///
+    /// # Panic Safety
+    ///
+    /// The node's panic behavior depends on the builder's `allow_panic` setting:
+    /// - If `allow_panic` is false (default), panics in the cycle function are caught
+    ///   and converted to `Control::Sweep`, marking the node for removal
+    /// - If `allow_panic` is true, panics propagate normally
+    pub fn build_with_channel<U, F>(
+        self,
+        executor: &mut Executor,
+        capacity: usize,
+        mut cycle_fn: F,
+    ) -> io::Result<(Node<T>, Sender<U>)>
+    where
+        U: 'static,
+        F: FnMut(&mut T, &mut ExecutionContext, &Receiver<U>) -> Control + 'static,
+    {
+        assert!(capacity > 0, "capacity must be greater than 0");
+        let node = Node::uninitialized(self.data, self.name, executor.garbage_collector());
+        let depth = self
+            .parents
+            .iter()
+            .map(|(_, depth, _)| depth)
+            .max()
+            .map(|d| d + 1)
+            .unwrap_or(0);
+
+        let notifier = executor.io_driver().register_notifier(node.index())?;
+        let (tx, rx) = new_channel(capacity, notifier);
+        {
+            let state = node.downgrade();
+            let receiver = rx;
+            let cycle_fn: CycleFn = if self.allow_panic {
+                Box::new(move |ctx: &mut ExecutionContext| match state.upgrade() {
+                    Some(mut state) => {
+                        let ctrl = cycle_fn(state.borrow_mut(), ctx, &receiver);
+                        if ctrl.is_broadcast() {
+                            state.set_mut_epoch(ctx.epoch());
+                        }
+                        ctrl
+                    }
+                    None => Control::Sweep,
+                })
+            } else {
+                Box::new(move |ctx: &mut ExecutionContext| match state.upgrade() {
+                    Some(mut state) => {
+                        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                            cycle_fn(state.borrow_mut(), ctx, &receiver)
+                        })) {
+                            Ok(ctrl) => {
+                                if ctrl.is_broadcast() {
+                                    state.set_mut_epoch(ctx.epoch());
+                                }
+                                ctrl
+                            }
+                            Err(_) => Control::Sweep,
+                        }
+                    }
+                    None => Control::Sweep,
+                })
+            };
+
+            let idx = executor.graph().add_node(NodeContext::new(cycle_fn, depth));
+            let inner = node.get_mut();
+            inner.index = idx;
+            inner.depth = depth;
+
+            self.parents.iter().for_each(|(parent, _, relationship)| {
+                executor.graph().add_edge(*parent, idx, *relationship);
+            });
+
+            executor.scheduler().enable_depth(depth);
+            if let Some(mut on_init) = self.on_init {
+                (on_init)(executor, &mut node.get_mut().data, idx)
+            }
+
+            inner.on_drop = self.on_drop;
+        }
+
+        Ok((node, tx))
     }
 
     /// Builds the node without returning a handle (fire-and-forget).
