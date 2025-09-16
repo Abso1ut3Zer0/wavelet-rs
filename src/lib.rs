@@ -5,6 +5,8 @@ pub use petgraph::prelude::NodeIndex;
 pub mod channel;
 #[cfg(feature = "factories")]
 pub mod factory;
+#[cfg(feature = "nodes")]
+pub mod nodes;
 #[cfg(feature = "runtime")]
 pub mod runtime;
 #[cfg(feature = "testing")]
@@ -69,6 +71,16 @@ pub enum Control {
     /// Use when this node has completed its purpose and should be
     /// cleaned up. The node will be removed after the current cycle.
     Sweep,
+}
+
+impl From<bool> for Control {
+    fn from(value: bool) -> Self {
+        if value {
+            Control::Broadcast
+        } else {
+            Control::Unchanged
+        }
+    }
 }
 
 pub mod prelude {

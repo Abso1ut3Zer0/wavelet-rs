@@ -22,7 +22,8 @@ runtime = []
 factories = ["runtime"]
 testing = ["runtime"]
 channel = ["runtime"]
-full = ["runtime", "factories", "testing", "channel"]
+nodes = ["runtime"]
+full = ["runtime", "factories", "testing", "channel", "nodes"]
 
 [package.metadata.docs.rs]
 all-features = true
