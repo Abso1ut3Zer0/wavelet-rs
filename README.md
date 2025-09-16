@@ -159,57 +159,76 @@ let processor = NodeBuilder::new(PriceProcessor::new())
 For complex topologies, compose simple factories into larger DSL structures:
 
 ```rust, ignore
-struct TradingSystemFactory {
-    market_data: KeyedFactory<String, MarketFeed>,
-    risk_engine: KeyedFactory<String, RiskValidator>,
-    order_gateway: KeyedFactory<String, OrderSender>,
+// DSL-level factories (custom structs)
+struct MarketDataFactory { /* configuration */ }
+struct RiskEngineFactory { /* configuration */ }  
+struct OrderGatewayFactory { /* configuration */ }
+
+impl MarketDataFactory {
+    fn get_feed(&self, executor: &mut Executor, symbol: String) -> Node<MarketFeed> {
+        // Implementation specific to market data
+    }
 }
 
-impl TradingSystemFactory {
-    fn create_trading_pair(&self, executor: &mut Executor, symbol: String) -> Node<TradingPair> {
-        // Create the data pipeline using individual factories
-        let feed = self.market_data.get(executor, symbol.clone());
-        let risk = self.risk_engine.get(executor, "primary".to_string());
-        let gateway = self.order_gateway.get(executor, symbol.clone());
-        
-        // Return the leaf node of this subgraph
-        NodeBuilder::new(TradingPair::new(symbol))
-            .triggered_by(&feed)
-            .observer_of(&risk)    // Risk engine provides validation
-            .observer_of(&gateway) // Gateway handles order execution
-            .build(executor, |pair, ctx| {
-                // Trading logic here
-                Control::Broadcast
-            })
-    }
-    
+// Strategy factory composes DSL factories with a KeyedFactory
+struct StrategyFactory {
+    market_data: MarketDataFactory,
+    risk_engine: RiskEngineFactory, 
+    order_gateway: OrderGatewayFactory,
+    strategies: KeyedFactory<String, Strategy>,
+}
+
+impl StrategyFactory {
     fn for_environment(env: Environment) -> Self {
+        // Create DSL component factories
+        let market_data = MarketDataFactory::for_environment(env);
+        let risk_engine = RiskEngineFactory::for_environment(env);
+        let order_gateway = OrderGatewayFactory::for_environment(env);
+
+        // Create the KeyedFactory that builds complete strategies
+        let strategies = {
+            let market_data = market_data.clone();
+            let risk_engine = risk_engine.clone(); 
+            let order_gateway = order_gateway.clone();
+            
+            KeyedFactory::default().attach(move |executor, symbol: &String| {
+                // Use DSL factories to build the subgraph
+                let feed = market_data.get_feed(executor, symbol.clone());
+                let risk = risk_engine.get_validator(executor, "primary".to_string());
+                let gateway = order_gateway.get_sender(executor, symbol.clone());
+                
+                // Return the leaf node of this subgraph
+                NodeBuilder::new(Strategy::new(symbol.clone()))
+                    .triggered_by(&feed)
+                    .observer_of(&risk)    // Risk provides validation
+                    .observer_of(&gateway) // Gateway handles execution
+                    .build(executor, |strategy, ctx| {
+                        // Strategy logic here
+                        Control::Broadcast
+                    })
+            })
+        };
+
         Self {
-            market_data: match env {
-                Environment::Live => KeyedFactory::default()
-                    .attach(|executor, symbol| LiveMarketFeed::create(executor, symbol)),
-                Environment::Test => KeyedFactory::default()
-                    .attach(|executor, symbol| MockMarketFeed::create(executor, symbol)),
-            },
-            risk_engine: KeyedFactory::default()
-                .attach(|executor, _| RiskEngine::create(executor, env.risk_config())),
-            order_gateway: match env {
-                Environment::Live => KeyedFactory::default()
-                    .attach(|executor, symbol| LiveOrderGateway::create(executor, symbol)),
-                Environment::Test => KeyedFactory::default()
-                    .attach(|executor, symbol| MockOrderGateway::create(executor, symbol)),
-            },
+            market_data,
+            risk_engine,
+            order_gateway,
+            strategies,
         }
     }
+    
+    fn get_strategy(&self, executor: &mut Executor, symbol: String) -> Node<Strategy> {
+        self.strategies.get(executor, symbol)
+    }
 }
 
-// Usage: Same high-level construction, different implementations
-let factory = TradingSystemFactory::for_environment(config.environment);
-let eurusd_trader = factory.create_trading_pair(&mut executor, "EURUSD".to_string());
-let gbpusd_trader = factory.create_trading_pair(&mut executor, "GBPUSD".to_string());
+// Usage: DSL factories compose into higher-level factories
+let factory = StrategyFactory::for_environment(config.environment);
+let eurusd_strategy = factory.get_strategy(&mut executor, "EURUSD".to_string());
+let gbpusd_strategy = factory.get_strategy(&mut executor, "GBPUSD".to_string());
 ```
 
-#### Key Benefits
+### Key Benefits
 
 - **Memoization**: Identical keys return the same cached node instance, preventing duplicate subgraph creation
 - **Environment Isolation**: Test, staging, and production can use completely different implementations
@@ -219,19 +238,6 @@ let gbpusd_trader = factory.create_trading_pair(&mut executor, "GBPUSD".to_strin
 
 This pattern is particularly powerful for financial systems, IoT processing pipelines, and any domain where you need to
 swap data sources, validation logic, or output destinations based on runtime configuration.
-
-## Use Cases
-
-Wavelet excels in domains requiring deterministic, low-latency processing:
-
-- **Financial Systems** - Trading engines, risk management, market data processing
-- **Real-time Analytics** - Live dashboards, alerting, stream aggregation
-- **IoT Processing** - Sensor data, device management, edge computing
-- **Protocol Handling** - Stateful network protocols, message parsing
-
-## Contributing
-
-We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 ## License
 
