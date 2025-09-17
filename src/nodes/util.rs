@@ -5,6 +5,7 @@ pub fn constant_node<T>(executor: &mut Executor, constant: T) -> Node<T> {
     NodeBuilder::new(constant).build(executor, |_, _| Control::Unchanged)
 }
 
+#[cfg(feature = "unstable")]
 pub fn sweep_node<T, S>(
     executor: &mut Executor,
     node_to_sweep: Node<T>,

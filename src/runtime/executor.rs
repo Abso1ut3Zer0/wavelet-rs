@@ -182,7 +182,7 @@ impl<'a> ExecutionContext<'a> {
     /// Used by nodes with `Observe` relationships to determine when their
     /// dependencies have changed and action may be needed.
     #[inline(always)]
-    pub fn has_mutated<T>(&self, parent: Node<T>) -> bool {
+    pub fn has_mutated<T>(&self, parent: &Node<T>) -> bool {
         parent.mut_epoch() == self.epoch
     }
 

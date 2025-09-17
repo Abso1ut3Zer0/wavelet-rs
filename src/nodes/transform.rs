@@ -4,7 +4,7 @@ use crate::runtime::{Executor, NodeBuilder};
 use ahash::{HashSet, HashSetExt};
 use std::hash::Hash;
 
-pub fn accumulator_node<T, A>(
+pub fn accumulate_stream_node<T, A>(
     executor: &mut Executor,
     parent: Node<Vec<T>>,
     initial: A,
@@ -18,7 +18,7 @@ pub fn accumulator_node<T, A>(
         })
 }
 
-pub fn accumulator_with_reset_node<T, A: Default>(
+pub fn accumulate_stream_with_reset_node<T, A: Default>(
     executor: &mut Executor,
     parent: Node<Vec<T>>,
     fold_fn: impl Fn(&mut A, &T) + 'static,
@@ -32,7 +32,7 @@ pub fn accumulator_with_reset_node<T, A: Default>(
         })
 }
 
-pub fn deduplicate_node<K: Eq + Hash + 'static, T: Clone>(
+pub fn deduplicate_stream_node<K: Eq + Hash + 'static, T: Clone>(
     executor: &mut Executor,
     parent: Node<Vec<T>>,
     key_fn: impl Fn(&T) -> K + 'static,
@@ -55,7 +55,7 @@ pub fn deduplicate_node<K: Eq + Hash + 'static, T: Clone>(
         })
 }
 
-pub fn filter_node<T: Clone>(
+pub fn filter_stream_node<T: Clone>(
     executor: &mut Executor,
     parent: Node<Vec<T>>,
     predicate: impl Fn(&T) -> bool + 'static,
@@ -69,7 +69,7 @@ pub fn filter_node<T: Clone>(
                     .borrow()
                     .iter()
                     .filter(|item| predicate(item))
-                    .map(|item| item.to_owned()),
+                    .cloned(),
             );
             (!this.is_empty()).into()
         })
@@ -87,9 +87,10 @@ mod tests {
         let (parent, push) = push_node(runtime.executor(), Vec::new());
 
         // Running sum accumulator
-        let sum_node = accumulator_node(runtime.executor(), parent.clone(), 0, |acc, &item| {
-            *acc += item
-        });
+        let sum_node =
+            accumulate_stream_node(runtime.executor(), parent.clone(), 0, |acc, &item| {
+                *acc += item
+            });
 
         // First cycle: sum 1 + 2 + 3 = 6
         push.push_with_cycle(&mut runtime, vec![1, 2, 3]);
@@ -110,7 +111,7 @@ mod tests {
         let (parent, push) = push_node(runtime.executor(), Vec::new());
 
         // Per-cycle sum accumulator
-        let sum_node = accumulator_with_reset_node(
+        let sum_node = accumulate_stream_with_reset_node(
             runtime.executor(),
             parent.clone(),
             |acc: &mut i32, &item| *acc += item,
@@ -135,7 +136,7 @@ mod tests {
         let (parent, push) = push_node(runtime.executor(), Vec::new());
 
         // Count and sum accumulator
-        let stats_node = accumulator_node(
+        let stats_node = accumulate_stream_node(
             runtime.executor(),
             parent.clone(),
             (0, 0), // (count, sum)
@@ -158,7 +159,7 @@ mod tests {
         let (parent, push) = push_node(runtime.executor(), Vec::new());
 
         // Deduplicate by value (identity function)
-        let dedup_node = deduplicate_node(runtime.executor(), parent.clone(), |&item| item);
+        let dedup_node = deduplicate_stream_node(runtime.executor(), parent.clone(), |&item| item);
 
         // First cycle: [1, 2, 2, 3, 1] -> [1, 2, 3]
         push.push_with_cycle(&mut runtime, vec![1, 2, 2, 3, 1]);
@@ -186,9 +187,10 @@ mod tests {
         let (parent, push) = push_node(runtime.executor(), Vec::new());
 
         // Deduplicate by symbol (first trade per symbol wins)
-        let dedup_node = deduplicate_node(runtime.executor(), parent.clone(), |trade: &Trade| {
-            trade.symbol.clone()
-        });
+        let dedup_node =
+            deduplicate_stream_node(runtime.executor(), parent.clone(), |trade: &Trade| {
+                trade.symbol.clone()
+            });
 
         let trades = vec![
             Trade {
@@ -228,7 +230,7 @@ mod tests {
         let mut runtime = TestRuntime::new();
         let (parent, push) = push_node(runtime.executor(), Vec::new());
 
-        let dedup_node = deduplicate_node(runtime.executor(), parent.clone(), |&item| item);
+        let dedup_node = deduplicate_stream_node(runtime.executor(), parent.clone(), |&item| item);
 
         // Empty input should not trigger downstream (Control::Unchanged)
         push.push_with_cycle(&mut runtime, vec![]);
@@ -244,9 +246,10 @@ mod tests {
         let mut runtime = TestRuntime::new();
         let (parent, push) = push_node(runtime.executor(), Vec::new());
 
-        let sum_node = accumulator_node(runtime.executor(), parent.clone(), 0, |acc, &item| {
-            *acc += item
-        });
+        let sum_node =
+            accumulate_stream_node(runtime.executor(), parent.clone(), 0, |acc, &item| {
+                *acc += item
+            });
 
         // Even empty input should trigger downstream (Control::Broadcast)
         push.push_with_cycle(&mut runtime, vec![]);
@@ -262,7 +265,7 @@ mod tests {
         let (parent, push) = push_node(runtime.executor(), Vec::new());
 
         // Filter for even numbers
-        let even_node = filter_node(runtime.executor(), parent.clone(), |&x| x % 2 == 0);
+        let even_node = filter_stream_node(runtime.executor(), parent.clone(), |&x| x % 2 == 0);
 
         // First cycle: [1, 2, 3, 4, 5] -> [2, 4]
         push.push_with_cycle(&mut runtime, vec![1, 2, 3, 4, 5]);
@@ -298,9 +301,10 @@ mod tests {
         let (parent, push) = push_node(runtime.executor(), Vec::new());
 
         // Filter for large orders (quantity > 100)
-        let large_orders = filter_node(runtime.executor(), parent.clone(), |order: &Order| {
-            order.quantity > 100
-        });
+        let large_orders =
+            filter_stream_node(runtime.executor(), parent.clone(), |order: &Order| {
+                order.quantity > 100
+            });
 
         let orders = vec![
             Order {
@@ -340,7 +344,7 @@ mod tests {
         let mut runtime = TestRuntime::new();
         let (parent, push) = push_node(runtime.executor(), Vec::new());
 
-        let filtered = filter_node(runtime.executor(), parent.clone(), |&x| x > 5);
+        let filtered = filter_stream_node(runtime.executor(), parent.clone(), |&x| x > 5);
 
         // Order should be preserved in filtered output
         push.push_with_cycle(&mut runtime, vec![10, 3, 8, 1, 6, 2, 9]);

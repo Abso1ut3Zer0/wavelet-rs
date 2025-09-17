@@ -24,6 +24,7 @@ factories = ["runtime"]
 testing = ["runtime"]
 channel = ["runtime"]
 nodes = ["runtime"]
+unstable = ["runtime"]
 full = ["runtime", "factories", "testing", "channel", "nodes"]
 
 [package.metadata.docs.rs]
