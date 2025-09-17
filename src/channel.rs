@@ -33,10 +33,7 @@ impl<T> Drop for Sender<T> {
     fn drop(&mut self) {
         let prev = self.chan.senders.fetch_sub(1, Ordering::Release);
         if prev == 1 {
-            let backoff = Backoff::new();
-            while let Err(_) = self.chan.notifier.notify() {
-                backoff.snooze();
-            }
+            self.chan.notifier.notify();
         }
     }
 }
@@ -111,10 +108,7 @@ impl<T> Channel<T> {
             .push(item)
             .map_err(|item| TrySendError::ChannelFull(item))
             .map(|_| {
-                let backoff = Backoff::new();
-                while let Err(_) = self.notifier.notify() {
-                    backoff.snooze(); // transient error, retry
-                }
+                self.notifier.notify();
             })
     }
 
@@ -143,10 +137,7 @@ impl<T> Channel<T> {
             return Err(ChannelClosed(item));
         }
         self.queue.force_push(item).map(|_| {
-            let backoff = Backoff::new();
-            while let Err(_) = self.notifier.notify() {
-                backoff.snooze(); // transient error, retry
-            }
+            self.notifier.notify();
         });
         Ok(())
     }

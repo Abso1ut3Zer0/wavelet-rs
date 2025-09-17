@@ -85,10 +85,7 @@ pub fn push_node<T: Default + 'static>(executor: &mut Executor, data: T) -> (Nod
     (
         NodeBuilder::new(data)
             .on_init(move |ex, _, idx| {
-                let notifier = ex
-                    .io_driver()
-                    .register_notifier(idx)
-                    .expect("failed to register notifier");
+                let notifier = ex.register_notifier(idx);
                 push_on_init.register_notifier(notifier);
             })
             .build(executor, move |this, _| {
