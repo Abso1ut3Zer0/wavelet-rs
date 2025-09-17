@@ -1,6 +1,6 @@
 use crate::Control;
 use crate::runtime::{CycleOnce, Executor, Node, NodeBuilder, Notifier, TestRuntime};
-use std::cell::{Ref, RefCell};
+use std::cell::RefCell;
 use std::rc::Rc;
 
 pub struct Push<T: 'static> {
@@ -15,7 +15,7 @@ impl<T: 'static> Clone for Push<T> {
     }
 }
 
-impl<T: 'static> Push<T> {
+impl<T: Default + 'static> Push<T> {
     pub fn new() -> Self {
         Self {
             inner: Rc::new(RefCell::new(PushInner::new())),
@@ -56,10 +56,10 @@ pub struct PushInner<T: 'static> {
     notifier: Option<Notifier>,
 }
 
-impl<T: 'static> PushInner<T> {
-    const fn new() -> Self {
+impl<T: Default + 'static> PushInner<T> {
+    fn new() -> Self {
         Self {
-            data: unsafe { std::mem::zeroed() },
+            data: T::default(),
             notifier: None,
         }
     }
@@ -70,9 +70,7 @@ impl<T: 'static> PushInner<T> {
     }
 
     fn take(&mut self) -> T {
-        let mut val = unsafe { std::mem::zeroed() };
-        std::mem::swap(&mut self.data, &mut val);
-        val
+        std::mem::take(&mut self.data)
     }
 
     fn register_notifier(&mut self, notifier: Notifier) {
@@ -80,13 +78,13 @@ impl<T: 'static> PushInner<T> {
     }
 }
 
-pub fn push_node<T: 'static>(executor: &mut Executor, data: T) -> (Node<T>, Push<T>) {
+pub fn push_node<T: Default + 'static>(executor: &mut Executor, data: T) -> (Node<T>, Push<T>) {
     let push = Push::new();
     let push_on_init = push.clone();
     let push_on_cycle = push.clone();
     (
         NodeBuilder::new(data)
-            .on_init(move |ex, this, idx| {
+            .on_init(move |ex, _, idx| {
                 let notifier = ex
                     .io_driver()
                     .register_notifier(idx)

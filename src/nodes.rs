@@ -1,4 +1,4 @@
-mod control;
+pub mod control;
 
 use crate::Control;
 use crate::prelude::{Executor, Node, NodeBuilder};
