@@ -1,4 +1,5 @@
 use crate::Control;
+use crate::runtime::Notifier;
 use crate::runtime::clock::TriggerTime;
 use crate::runtime::event_driver::YieldDriver;
 use crate::runtime::event_driver::{EventDriver, IoDriver, IoSource, TimerDriver, TimerSource};
@@ -32,12 +33,12 @@ pub enum ExecutorState {
     Terminated,
 }
 
-/// Execution context provided to nodes during their cycle function.
+/// Execution context provided to wsnl during their cycle function.
 ///
-/// `ExecutionContext` is the primary interface that nodes use to interact
+/// `ExecutionContext` is the primary interface that wsnl use to interact
 /// with the runtime during execution. It provides access to:
 /// - **Event registration**: I/O sources, timers, and yield scheduling
-/// - **Graph operations**: Scheduling other nodes and spawning subgraphs
+/// - **Graph operations**: Scheduling other wsnl and spawning subgraphs
 /// - **Time information**: Current time snapshots for consistent timing
 /// - **Mutation tracking**: Check if dependencies have changed this cycle
 ///
@@ -142,14 +143,14 @@ impl<'a> ExecutionContext<'a> {
 
     /// Returns the monotonic time snapshot for this execution cycle.
     ///
-    /// All nodes in the same cycle see the same time value for consistency.
+    /// All wsnl in the same cycle see the same time value for consistency.
     pub const fn now(&self) -> Instant {
         self.time_snapshot.instant
     }
 
     /// Returns the wall clock time snapshot for this execution cycle.
     ///
-    /// All nodes in the same cycle see the same time value for consistency.
+    /// All wsnl in the same cycle see the same time value for consistency.
     pub const fn trigger_time(&self) -> OffsetDateTime {
         self.time_snapshot.system_time
     }
@@ -179,17 +180,17 @@ impl<'a> ExecutionContext<'a> {
 
     /// Checks if a parent node has mutated in the current execution cycle.
     ///
-    /// Used by nodes with `Observe` relationships to determine when their
+    /// Used by wsnl with `Observe` relationships to determine when their
     /// dependencies have changed and action may be needed.
     #[inline(always)]
-    pub fn has_mutated<T>(&self, parent: Node<T>) -> bool {
+    pub fn has_mutated<T>(&self, parent: &Node<T>) -> bool {
         parent.mut_epoch() == self.epoch
     }
 
     /// Defers the creation of a subgraph until after the current cycle completes.
     ///
     /// The provided closure will be called with full executor access after all
-    /// nodes in the current cycle have finished executing. This prevents
+    /// wsnl in the current cycle have finished executing. This prevents
     /// graph modification during active execution to ensure the graph remains
     /// consistent across the current processing cycle (avoids any reentrancy
     /// related issues).
@@ -205,14 +206,14 @@ impl<'a> ExecutionContext<'a> {
 /// The core execution engine that manages the computation graph and runtime state.
 ///
 /// The `Executor` is the heart of the wavelet runtime, responsible for:
-/// - **Graph management**: Storing nodes, relationships, and topology
+/// - **Graph management**: Storing wsnl, relationships, and topology
 /// - **Event coordination**: Integrating I/O, timers, and yield events
 /// - **Scheduling**: Orchestrating dependency-ordered node execution
 /// - **Lifecycle management**: Handling node creation, execution, and cleanup
 /// - **Resource management**: Coordinating garbage collection and memory cleanup
 ///
 /// # Architecture
-/// The executor operates on a single-threaded, cooperative model where nodes
+/// The executor operates on a single-threaded, cooperative model where wsnl
 /// execute in dependency order and voluntarily yield control. This provides:
 /// - **Deterministic execution**: Predictable ordering and timing
 /// - **Zero-cost scheduling**: Direct function calls without async overhead
@@ -223,7 +224,7 @@ impl<'a> ExecutionContext<'a> {
 /// context. The access pattern ensures safety through temporal separation:
 /// `pop()` → node execution → `schedule()` → repeat, with no overlapping borrows.
 pub struct Executor {
-    /// The computation graph containing all nodes and relationships
+    /// The computation graph containing all wsnl and relationships
     graph: Graph,
 
     /// Node scheduler with safe interior mutability
@@ -282,7 +283,7 @@ impl Executor {
 
     /// Provides access to the timer driver for time-based scheduling.
     ///
-    /// Use this to register timers that will schedule nodes at specific times
+    /// Use this to register timers that will schedule wsnl at specific times
     /// or after delays.
     pub const fn timer_driver(&mut self) -> &mut TimerDriver {
         self.event_driver.timer_driver()
@@ -290,10 +291,15 @@ impl Executor {
 
     /// Provides access to the yield driver for immediate scheduling.
     ///
-    /// Use this to schedule nodes for execution in the current cycle, typically
+    /// Use this to schedule wsnl for execution in the current cycle, typically
     /// during node initialization or for self-triggering patterns.
     pub const fn yield_driver(&mut self) -> &mut YieldDriver {
         self.event_driver.yield_driver()
+    }
+
+    #[inline(always)]
+    pub fn register_notifier(&self, node_index: NodeIndex) -> Notifier {
+        self.event_driver.register_notifier(node_index)
     }
 
     /// Provides internal access to the computation graph (runtime internal only).
@@ -312,7 +318,7 @@ impl Executor {
 
     /// Returns a cloneable handle to the garbage collector.
     ///
-    /// Used by nodes to register themselves for cleanup when dropped.
+    /// Used by wsnl to register themselves for cleanup when dropped.
     /// The garbage collector coordinates deferred removal after cycle completion.
     pub(crate) fn garbage_collector(&mut self) -> GarbageCollector {
         self.gc.clone()
@@ -342,12 +348,12 @@ impl Executor {
     /// ```
     /// Increments the global epoch counter used for:
     /// - Change tracking (`has_mutated()` queries)
-    /// - Scheduling deduplication (prevents double-scheduling nodes)
-    /// - Mutation epoch stamping when nodes execute
+    /// - Scheduling deduplication (prevents double-scheduling wsnl)
+    /// - Mutation epoch stamping when wsnl execute
     ///
     /// ## 2. Event Polling
     /// ```text
-    /// event_driver.poll() → schedules ready nodes
+    /// event_driver.poll() → schedules ready wsnl
     /// ```
     /// Processes all event sources in priority order:
     /// - **Yield events**: Immediate scheduling requests (highest priority)
@@ -362,7 +368,7 @@ impl Executor {
     ///     handle_control_result(result)
     /// ```
     ///
-    /// Executes nodes in dependency order (depth-first) until scheduler is empty:
+    /// Executes wsnl in dependency order (depth-first) until scheduler is empty:
     /// - **Update context**: Set current node for context queries
     /// - **Execute node**: Call the node's cycle function with mutable data access
     /// - **Process result**: Handle the returned `Control` value:
@@ -395,8 +401,8 @@ impl Executor {
     /// while gc.next_to_sweep() → Some(node):
     ///     graph.remove_node(node)
     /// ```
-    /// Remove all nodes marked for garbage collection during execution.
-    /// Safe to modify the graph structure after all nodes have finished executing.
+    /// Remove all wsnl marked for garbage collection during execution.
+    /// Safe to modify the graph structure after all wsnl have finished executing.
     ///
     /// ## 5. Deferred Operations
     /// ```text
@@ -407,7 +413,7 @@ impl Executor {
     /// This allows dynamic graph modification without disrupting the current cycle.
     ///
     /// # Parameters
-    /// - `time_snapshot`: Consistent time values for all nodes in this cycle
+    /// - `time_snapshot`: Consistent time values for all wsnl in this cycle
     /// - `timeout`: Maximum time to wait for I/O events (None = no timeout)
     ///
     /// # Returns
@@ -440,7 +446,7 @@ impl Executor {
             self.epoch,
         );
 
-        // Process nodes in the graph
+        // Process wsnl in the graph
         while let Some(node_idx) = unsafe { (&mut *self.scheduler.get()).pop() } {
             ctx.set_current(node_idx);
             match self.graph.cycle(&mut ctx, node_idx) {
@@ -480,7 +486,7 @@ impl Executor {
             }
         }
 
-        // Sweep all nodes marked for cleanup
+        // Sweep all wsnl marked for cleanup
         while let Some(marked_node) = self.gc.next_to_sweep() {
             self.graph.remove_node(marked_node);
         }
@@ -608,7 +614,7 @@ mod tests {
     }
 
     #[test]
-    fn test_io_event_handling() {
+    fn test_notifier_handling() {
         let mut executor = Executor::new();
         let mut clock = TestClock::new();
 
@@ -620,7 +626,7 @@ mod tests {
             })
             .unwrap();
 
-        notifier.notify().unwrap();
+        notifier.notify();
 
         // Run cycle - this should pick up the I/O event and schedule the node
         let now = clock.trigger_time();
@@ -630,6 +636,24 @@ mod tests {
 
         // Verify the node was called due to an I/O event
         assert_eq!(*node.borrow(), 1);
+
+        let unknown_notifier = executor.register_notifier(NodeIndex::from(100));
+        unknown_notifier.notify();
+
+        let driver = &mut executor.event_driver;
+        let graph = &mut executor.graph;
+        let scheduler = unsafe { &mut *executor.scheduler.get() };
+        let epoch = executor.epoch + 1;
+        let now = clock.trigger_time();
+        driver
+            .poll(graph, scheduler, None, now.instant, epoch)
+            .unwrap();
+
+        let mut count = 0;
+        while let Some(_) = scheduler.pop() {
+            count += 1;
+        }
+        assert_eq!(count, 0);
     }
 
     #[test]
@@ -764,7 +788,7 @@ mod tests {
         let now = clock.trigger_time();
         executor.cycle(now, Some(Duration::ZERO)).unwrap();
 
-        // All nodes should have been called in order
+        // All wsnl should have been called in order
         let order = call_order.borrow();
         assert_eq!(*order, vec![1, 2, 3]);
     }
@@ -1032,7 +1056,7 @@ mod tests {
                 data.update(|count| count + 1);
             })
             .build(&mut executor, |_, _| {
-                // panic ahead of downstream child nodes,
+                // panic ahead of downstream child wsnl,
                 // which should trigger garbage collection
                 // for the entire subgraph
                 panic!("panic!");

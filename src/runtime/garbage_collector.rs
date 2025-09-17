@@ -3,7 +3,7 @@ use std::cell::UnsafeCell;
 use std::collections::VecDeque;
 use std::rc::Rc;
 
-/// Manages deferred removal of nodes from the graph after cycle completion.
+/// Manages deferred removal of wsnl from the graph after cycle completion.
 ///
 /// Please see the `test_garbage_collection` test for a simple
 /// example of how to use the GarbageCollector.

@@ -35,7 +35,7 @@ pub struct TimerSource {
 /// - Timers registered for the same instant fire in registration order
 /// - Each timer can be uniquely identified and cancelled
 pub struct TimerDriver {
-    /// Ordered map of active timers to their associated nodes
+    /// Ordered map of active timers to their associated wsnl
     timers: BTreeMap<TimerSource, NodeIndex>,
 
     /// Monotonically increasing sequence counter for unique timer IDs
@@ -89,10 +89,10 @@ impl TimerDriver {
         self.timers.remove(&source);
     }
 
-    /// Checks for expired timers and schedules their associated nodes.
+    /// Checks for expired timers and schedules their associated wsnl.
     ///
     /// Processes all timers that have expired as of the current time, scheduling
-    /// their nodes for execution. Uses epoch-based deduplication to prevent
+    /// their wsnl for execution. Uses epoch-based deduplication to prevent
     /// scheduling the same node multiple times per cycle.
     ///
     /// The implementation efficiently processes expired timers by leveraging
@@ -235,7 +235,7 @@ mod tests {
         let mut scheduler = Scheduler::new();
         scheduler.resize(5);
 
-        // Add multiple nodes
+        // Add multiple wsnl
         let node1_ctx = NodeContext::new(Box::new(|_| Control::Unchanged), 1);
         let node2_ctx = NodeContext::new(Box::new(|_| Control::Unchanged), 3);
         let node3_ctx = NodeContext::new(Box::new(|_| Control::Unchanged), 2);
