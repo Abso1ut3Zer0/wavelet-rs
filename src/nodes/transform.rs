@@ -51,7 +51,7 @@ pub fn deduplicate_stream_node<K: Eq + Hash + 'static, T: Clone>(
                 }
             }
 
-            (!this.is_empty()).into()
+            Control::from(!this.is_empty())
         })
 }
 
@@ -71,7 +71,8 @@ pub fn filter_stream_node<T: Clone>(
                     .filter(|item| predicate(item))
                     .cloned(),
             );
-            (!this.is_empty()).into()
+
+            Control::from(!this.is_empty())
         })
 }
 

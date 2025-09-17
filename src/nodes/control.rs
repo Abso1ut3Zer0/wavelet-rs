@@ -41,7 +41,7 @@ impl<K: Clone + Eq + Hash + 'static, T: 'static> Router<K, T> {
                     .on_drop(move |_| {
                         cache.borrow_mut().remove(&key);
                     })
-                    .build(executor, move |this, _| (!this.is_empty()).into()),
+                    .build(executor, move |this, _| Control::from(!this.is_empty())),
                 0,
             ),
             Some(parent) => (
@@ -50,7 +50,7 @@ impl<K: Clone + Eq + Hash + 'static, T: 'static> Router<K, T> {
                         cache.borrow_mut().remove(&key);
                     })
                     .observer_of(parent)
-                    .build(executor, move |this, _| (!this.is_empty()).into()),
+                    .build(executor, move |this, _| Control::from(!this.is_empty())),
                 0,
             ),
         }
@@ -196,6 +196,77 @@ pub fn take_switch_stream_node<T>(
                 this.clear();
                 this.extend(secondary.borrow_mut().drain(..));
                 return Control::from(!this.is_empty());
+            }
+
+            Control::Unchanged
+        })
+}
+
+pub fn switch_node<T: Clone>(
+    executor: &mut Executor,
+    primary: Node<T>,
+    secondary: Node<T>,
+    switch: Node<bool>,
+    initial: T,
+) -> Node<T> {
+    let mut use_primary = *switch.borrow();
+    NodeBuilder::new(initial)
+        .triggered_by(&primary)
+        .triggered_by(&secondary)
+        .triggered_by(&switch)
+        .build(executor, move |this, ctx| {
+            if ctx.has_mutated(&switch) {
+                use_primary = *switch.borrow();
+                if use_primary {
+                    *this = primary.borrow().clone();
+                } else {
+                    *this = secondary.borrow().clone();
+                }
+
+                return Control::Broadcast;
+            }
+
+            if use_primary && ctx.has_mutated(&primary) {
+                *this = primary.borrow().clone();
+                return Control::Broadcast;
+            } else if !use_primary && ctx.has_mutated(&secondary) {
+                *this = secondary.borrow().clone();
+                return Control::Broadcast;
+            }
+
+            Control::Unchanged
+        })
+}
+
+pub fn take_switch_node<T: Default>(
+    executor: &mut Executor,
+    primary: Node<T>,
+    secondary: Node<T>,
+    switch: Node<bool>,
+) -> Node<T> {
+    let mut use_primary = *switch.borrow();
+    NodeBuilder::new(T::default())
+        .triggered_by(&primary)
+        .triggered_by(&secondary)
+        .triggered_by(&switch)
+        .build(executor, move |this, ctx| {
+            if ctx.has_mutated(&switch) {
+                use_primary = *switch.borrow();
+                if use_primary {
+                    *this = std::mem::take(primary.borrow_mut());
+                } else {
+                    *this = std::mem::take(secondary.borrow_mut());
+                }
+
+                return Control::Broadcast;
+            }
+
+            if use_primary && ctx.has_mutated(&primary) {
+                *this = std::mem::take(primary.borrow_mut());
+                return Control::Broadcast;
+            } else if !use_primary && ctx.has_mutated(&secondary) {
+                *this = std::mem::take(secondary.borrow_mut());
+                return Control::Broadcast;
             }
 
             Control::Unchanged
@@ -523,5 +594,288 @@ mod tests {
 
         right_push.push_with_cycle(&mut runtime, vec![10, 20]);
         assert_eq!(*switch_node.borrow(), vec![1, 2]); // unchanged
+    }
+
+    #[test]
+    fn test_switch_node_basic() {
+        let mut runtime = TestRuntime::new();
+        let (primary_parent, primary_push) = push_node(runtime.executor(), 10);
+        let (secondary_parent, secondary_push) = push_node(runtime.executor(), 20);
+        let (switch_parent, switch_push) = push_node(runtime.executor(), true); // Start with primary
+
+        let switch_node = switch_node(
+            runtime.executor(),
+            primary_parent.clone(),
+            secondary_parent.clone(),
+            switch_parent.clone(),
+            0, // Initial value
+        );
+
+        // Initially should have initial value
+        assert_eq!(*switch_node.borrow(), 0);
+
+        // Primary updates should propagate
+        primary_push.push_with_cycle(&mut runtime, 100);
+        assert_eq!(*switch_node.borrow(), 100);
+        assert!(runtime.executor().has_mutated(&switch_node));
+
+        // Secondary updates should be ignored while switch is true
+        secondary_push.push_with_cycle(&mut runtime, 200);
+        assert_eq!(*switch_node.borrow(), 100); // Unchanged
+        assert!(!runtime.executor().has_mutated(&switch_node));
+
+        // Switch to secondary
+        switch_push.push_with_cycle(&mut runtime, false);
+        assert_eq!(*switch_node.borrow(), 200); // Should pick up secondary's current value
+        assert!(runtime.executor().has_mutated(&switch_node));
+
+        // Now secondary updates should propagate
+        secondary_push.push_with_cycle(&mut runtime, 300);
+        assert_eq!(*switch_node.borrow(), 300);
+        assert!(runtime.executor().has_mutated(&switch_node));
+
+        // Primary updates should be ignored while switch is false
+        primary_push.push_with_cycle(&mut runtime, 400);
+        assert_eq!(*switch_node.borrow(), 300); // Unchanged
+        assert!(!runtime.executor().has_mutated(&switch_node));
+    }
+
+    #[test]
+    fn test_take_switch_node_basic() {
+        let mut runtime = TestRuntime::new();
+        let (primary_parent, primary_push) = push_node(runtime.executor(), 10);
+        let (secondary_parent, secondary_push) = push_node(runtime.executor(), 20);
+        let (switch_parent, switch_push) = push_node(runtime.executor(), true); // Start with primary
+
+        let switch_node = take_switch_node(
+            runtime.executor(),
+            primary_parent.clone(),
+            secondary_parent.clone(),
+            switch_parent.clone(),
+        );
+
+        // Initially should have default value
+        assert_eq!(*switch_node.borrow(), 0); // Default for i32
+
+        // Primary updates should propagate and consume
+        primary_push.push_with_cycle(&mut runtime, 100);
+        assert_eq!(*switch_node.borrow(), 100);
+        assert_eq!(*primary_parent.borrow(), 0); // Should be taken (reset to default)
+        assert!(runtime.executor().has_mutated(&switch_node));
+
+        // Secondary updates should be ignored while switch is true
+        secondary_push.push_with_cycle(&mut runtime, 200);
+        assert_eq!(*switch_node.borrow(), 100); // Unchanged
+        assert_eq!(*secondary_parent.borrow(), 200); // Should still have data
+        assert!(!runtime.executor().has_mutated(&switch_node));
+
+        // Switch to secondary
+        switch_push.push_with_cycle(&mut runtime, false);
+        assert_eq!(*switch_node.borrow(), 200); // Should take secondary's value
+        assert_eq!(*secondary_parent.borrow(), 0); // Should be taken
+        assert!(runtime.executor().has_mutated(&switch_node));
+
+        // Now secondary updates should propagate and consume
+        secondary_push.push_with_cycle(&mut runtime, 300);
+        assert_eq!(*switch_node.borrow(), 300);
+        assert_eq!(*secondary_parent.borrow(), 0); // Should be taken
+        assert!(runtime.executor().has_mutated(&switch_node));
+    }
+
+    #[test]
+    fn test_switch_node_clones_data() {
+        let mut runtime = TestRuntime::new();
+        let (primary_parent, primary_push) = push_node(runtime.executor(), 10);
+        let (secondary_parent, _secondary_push) = push_node(runtime.executor(), 20);
+        let (switch_parent, _) = push_node(runtime.executor(), true);
+
+        let switch_node = switch_node(
+            runtime.executor(),
+            primary_parent.clone(),
+            secondary_parent.clone(),
+            switch_parent.clone(),
+            0,
+        );
+
+        // Data should be cloned, not moved
+        primary_push.push_with_cycle(&mut runtime, 100);
+        assert_eq!(*switch_node.borrow(), 100);
+        assert_eq!(*primary_parent.borrow(), 100); // Original should remain
+    }
+
+    #[test]
+    fn test_normal_switch_during_same_cycle() {
+        let mut runtime = TestRuntime::new();
+        let (primary_parent, primary_push) = push_node(runtime.executor(), 10);
+        let (secondary_parent, secondary_push) = push_node(runtime.executor(), 20);
+        let (switch_parent, switch_push) = push_node(runtime.executor(), true);
+
+        let switch_node = switch_node(
+            runtime.executor(),
+            primary_parent.clone(),
+            secondary_parent.clone(),
+            switch_parent.clone(),
+            0,
+        );
+
+        // Update both inputs and switch in same cycle
+        primary_push.push(100);
+        secondary_push.push(200);
+        switch_push.push(false); // Switch to secondary
+        runtime.cycle_once();
+
+        // Should use the new switch state (secondary)
+        assert_eq!(*switch_node.borrow(), 200);
+    }
+
+    #[test]
+    fn test_both_switch_inputs_mutate_same_cycle() {
+        let mut runtime = TestRuntime::new();
+        let (primary_parent, primary_push) = push_node(runtime.executor(), 10);
+        let (secondary_parent, secondary_push) = push_node(runtime.executor(), 20);
+        let (switch_parent, _) = push_node(runtime.executor(), true); // Use primary
+
+        let switch_node = switch_node(
+            runtime.executor(),
+            primary_parent.clone(),
+            secondary_parent.clone(),
+            switch_parent.clone(),
+            0,
+        );
+
+        // Both inputs get data in same cycle
+        primary_push.push(100);
+        secondary_push.push(200);
+        runtime.cycle_once();
+
+        // Should only process the selected input (primary)
+        assert_eq!(*switch_node.borrow(), 100);
+    }
+
+    #[test]
+    fn test_normal_switch_multiple_times() {
+        let mut runtime = TestRuntime::new();
+        let (primary_parent, primary_push) = push_node(runtime.executor(), 10);
+        let (secondary_parent, secondary_push) = push_node(runtime.executor(), 20);
+        let (switch_parent, switch_push) = push_node(runtime.executor(), true);
+
+        let switch_node = switch_node(
+            runtime.executor(),
+            primary_parent.clone(),
+            secondary_parent.clone(),
+            switch_parent.clone(),
+            0,
+        );
+
+        // Start with primary
+        primary_push.push_with_cycle(&mut runtime, 100);
+        assert_eq!(*switch_node.borrow(), 100);
+
+        // Switch to secondary
+        switch_push.push_with_cycle(&mut runtime, false);
+        assert_eq!(*switch_node.borrow(), 20); // Secondary's current value
+
+        secondary_push.push_with_cycle(&mut runtime, 200);
+        assert_eq!(*switch_node.borrow(), 200);
+
+        // Switch back to primary
+        switch_push.push_with_cycle(&mut runtime, true);
+        assert_eq!(*switch_node.borrow(), 100); // Primary's current value
+
+        primary_push.push_with_cycle(&mut runtime, 300);
+        assert_eq!(*switch_node.borrow(), 300);
+    }
+
+    #[test]
+    fn test_switch_always_broadcasts() {
+        let mut runtime = TestRuntime::new();
+        let (primary_parent, primary_push) = push_node(runtime.executor(), 10);
+        let (secondary_parent, _) = push_node(runtime.executor(), 20);
+        let (switch_parent, _) = push_node(runtime.executor(), true);
+
+        let switch_node = switch_node(
+            runtime.executor(),
+            primary_parent.clone(),
+            secondary_parent.clone(),
+            switch_parent.clone(),
+            0,
+        );
+
+        // Any input change should broadcast (even if value doesn't change)
+        primary_push.push_with_cycle(&mut runtime, 10); // Same as source's current value
+        assert!(runtime.executor().has_mutated(&switch_node)); // Should still broadcast
+    }
+
+    #[test]
+    fn test_take_switch_node_with_structs() {
+        #[derive(Debug, Default, PartialEq, Clone)]
+        struct TestData {
+            id: u32,
+            value: String,
+        }
+
+        let mut runtime = TestRuntime::new();
+        let (primary_parent, primary_push) = push_node(
+            runtime.executor(),
+            TestData {
+                id: 1,
+                value: "primary".to_string(),
+            },
+        );
+        let (secondary_parent, _secondary_push) = push_node(
+            runtime.executor(),
+            TestData {
+                id: 2,
+                value: "secondary".to_string(),
+            },
+        );
+        let (switch_parent, switch_push) = push_node(runtime.executor(), true);
+
+        let switch_node = take_switch_node(
+            runtime.executor(),
+            primary_parent.clone(),
+            secondary_parent.clone(),
+            switch_parent.clone(),
+        );
+
+        // Should start with default
+        assert_eq!(*switch_node.borrow(), TestData::default());
+
+        // Primary update should be taken
+        let new_primary = TestData {
+            id: 10,
+            value: "updated_primary".to_string(),
+        };
+        primary_push.push_with_cycle(&mut runtime, new_primary.clone());
+        assert_eq!(*switch_node.borrow(), new_primary);
+        assert_eq!(*primary_parent.borrow(), TestData::default()); // Should be taken
+
+        // Switch to secondary
+        switch_push.push_with_cycle(&mut runtime, false);
+        let expected_secondary = TestData {
+            id: 2,
+            value: "secondary".to_string(),
+        };
+        assert_eq!(*switch_node.borrow(), expected_secondary);
+        assert_eq!(*secondary_parent.borrow(), TestData::default()); // Should be taken
+    }
+
+    #[test]
+    fn test_switch_node_with_custom_initial() {
+        let mut runtime = TestRuntime::new();
+        let (primary_parent, _) = push_node(runtime.executor(), 10);
+        let (secondary_parent, _) = push_node(runtime.executor(), 20);
+        let (switch_parent, _) = push_node(runtime.executor(), true);
+
+        let switch_node = switch_node(
+            runtime.executor(),
+            primary_parent.clone(),
+            secondary_parent.clone(),
+            switch_parent.clone(),
+            999, // Custom initial value
+        );
+
+        // Should start with custom initial value
+        assert_eq!(*switch_node.borrow(), 999);
     }
 }
