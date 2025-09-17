@@ -158,6 +158,11 @@ impl Graph {
     pub(crate) fn node_count(&self) -> usize {
         self.inner.node_count()
     }
+    
+    #[allow(dead_code)]
+    pub(crate) fn is_empty(&self) -> bool {
+        self.node_count() == 0
+    }
 }
 
 #[cfg(test)]

@@ -20,21 +20,17 @@ impl<K: Clone + Eq + Hash + 'static, T: 'static> Router<K, T> {
     }
 
     pub fn route(&self, executor: &mut Executor, key: K) -> Node<Vec<T>> {
-        if !self.cache.borrow().contains_key(&key) {
-            let (node, epoch) = self.new_node(executor, key.clone());
-            self.cache
-                .borrow_mut()
-                .insert(key, (node.downgrade(), epoch));
+        let mut cache = self.cache.borrow_mut();
+
+        if let Some((weak, _)) = cache.get(&key)
+            && let Some(node) = weak.upgrade()
+        {
             return node;
         }
 
-        self.cache
-            .borrow_mut()
-            .get_mut(&key)
-            .unwrap()
-            .0
-            .upgrade()
-            .unwrap()
+        let (node, epoch) = self.new_node(executor, key.clone());
+        cache.insert(key, (node.downgrade(), epoch));
+        node
     }
 
     fn new_node(&self, executor: &mut Executor, key: K) -> (Node<Vec<T>>, usize) {
@@ -67,8 +63,15 @@ pub fn take_router_node<K: Clone + Eq + Hash, T: 'static>(
     route: impl Fn(&T) -> K + 'static,
 ) -> Node<Router<K, T>> {
     let source = source.clone();
+    let gc = executor.garbage_collector();
     NodeBuilder::new(Router::new(Some(source.clone())))
         .triggered_by(&source)
+        .on_drop(move |this| {
+            this.cache.borrow().values().for_each(|(weak, _)| {
+                weak.upgrade().map(|node| gc.mark_for_sweep(node.index()));
+            });
+            this.cache.borrow_mut().clear();
+        })
         .build(executor, move |this, ctx| {
             source.borrow_mut().drain(..).for_each(|item| {
                 if let Some((node, epoch)) = this.cache.borrow_mut().get_mut(&route(&item))
@@ -92,10 +95,15 @@ pub fn channel_router_node<K: Clone + Eq + Hash, T: 'static>(
     poll_limit: usize,
     route: impl Fn(&T) -> K + 'static,
 ) -> std::io::Result<(Node<Router<K, T>>, Sender<T>)> {
-    NodeBuilder::new(Router::new(None)).build_with_channel(
-        executor,
-        capacity,
-        move |this, ctx, rx| {
+    let gc = executor.garbage_collector();
+    NodeBuilder::new(Router::new(None))
+        .on_drop(move |this| {
+            this.cache.borrow().values().for_each(|(weak, _)| {
+                weak.upgrade().map(|node| gc.mark_for_sweep(node.index()));
+            });
+            this.cache.borrow_mut().clear();
+        })
+        .build_with_channel(executor, capacity, move |this, ctx, rx| {
             for _ in 0..poll_limit {
                 match rx.try_receive() {
                     Ok(item) => {
@@ -115,8 +123,7 @@ pub fn channel_router_node<K: Clone + Eq + Hash, T: 'static>(
                 }
             }
             Control::Unchanged
-        },
-    )
+        })
 }
 
 #[cfg(test)]
@@ -198,5 +205,19 @@ mod tests {
         drop(node0);
         drop(node1);
         assert_eq!(router.borrow().cache.borrow().len(), 0);
+    }
+
+    #[test]
+    fn test_router_drop() {
+        let mut runtime = TestRuntime::new();
+        let (parent, push) = push_node(runtime.executor(), Vec::new());
+        let router = take_router_node(runtime.executor(), parent.clone(), |item| item % 2);
+        let node0 = router.borrow().route(runtime.executor(), 0);
+        let node1 = router.borrow().route(runtime.executor(), 1);
+        assert_eq!(router.borrow().cache.borrow().len(), 2);
+
+        drop(router);
+        runtime.cycle_once();
+        assert_eq!(runtime.executor().graph().node_count(), 1); // only push node remaining
     }
 }
