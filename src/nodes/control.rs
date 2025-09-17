@@ -128,29 +128,36 @@ pub fn channel_route_stream_node<K: Clone + Eq + Hash, T>(
 
 pub fn switch_stream_node<T: Clone>(
     executor: &mut Executor,
-    left: Node<Vec<T>>,
-    right: Node<Vec<T>>,
+    primary: Node<Vec<T>>,
+    secondary: Node<Vec<T>>,
     switch: Node<bool>,
 ) -> Node<Vec<T>> {
-    let mut use_left = true;
+    let mut use_primary = *switch.borrow();
     NodeBuilder::new(Vec::new())
-        .triggered_by(&left)
-        .triggered_by(&right)
+        .triggered_by(&primary)
+        .triggered_by(&secondary)
         .triggered_by(&switch)
         .build(executor, move |this, ctx| {
-            this.clear();
             if ctx.has_mutated(&switch) {
-                use_left = *switch.borrow();
+                this.clear();
+                use_primary = *switch.borrow();
+                if use_primary {
+                    this.extend(primary.borrow().iter().cloned());
+                } else {
+                    this.extend(secondary.borrow().iter().cloned());
+                }
+
+                return Control::from(!this.is_empty());
             }
 
-            if use_left && ctx.has_mutated(&left) {
-                this.extend(left.borrow().iter().cloned());
-                return (!this.is_empty()).into();
-            }
-
-            if !use_left && ctx.has_mutated(&right) {
-                this.extend(right.borrow().iter().cloned());
-                return (!this.is_empty()).into();
+            if use_primary && ctx.has_mutated(&primary) {
+                this.clear();
+                this.extend(primary.borrow().iter().cloned());
+                return Control::from(!this.is_empty());
+            } else if !use_primary && ctx.has_mutated(&secondary) {
+                this.clear();
+                this.extend(secondary.borrow().iter().cloned());
+                return Control::from(!this.is_empty());
             }
 
             Control::Unchanged
@@ -159,29 +166,36 @@ pub fn switch_stream_node<T: Clone>(
 
 pub fn take_switch_stream_node<T>(
     executor: &mut Executor,
-    left: Node<Vec<T>>,
-    right: Node<Vec<T>>,
+    primary: Node<Vec<T>>,
+    secondary: Node<Vec<T>>,
     switch: Node<bool>,
 ) -> Node<Vec<T>> {
-    let mut use_left = true;
+    let mut use_primary = *switch.borrow();
     NodeBuilder::new(Vec::new())
-        .triggered_by(&left)
-        .triggered_by(&right)
+        .triggered_by(&primary)
+        .triggered_by(&secondary)
         .triggered_by(&switch)
         .build(executor, move |this, ctx| {
-            this.clear();
             if ctx.has_mutated(&switch) {
-                use_left = *switch.borrow();
+                this.clear();
+                use_primary = *switch.borrow();
+                if use_primary {
+                    this.extend(primary.borrow_mut().drain(..));
+                } else {
+                    this.extend(secondary.borrow_mut().drain(..));
+                }
+
+                return Control::from(!this.is_empty());
             }
 
-            if use_left && ctx.has_mutated(&left) {
-                this.extend(left.borrow_mut().drain(..));
-                return (!this.is_empty()).into();
-            }
-
-            if !use_left && ctx.has_mutated(&right) {
-                this.extend(right.borrow_mut().drain(..));
-                return (!this.is_empty()).into();
+            if use_primary && ctx.has_mutated(&primary) {
+                this.clear();
+                this.extend(primary.borrow_mut().drain(..));
+                return Control::from(!this.is_empty());
+            } else if !use_primary && ctx.has_mutated(&secondary) {
+                this.clear();
+                this.extend(secondary.borrow_mut().drain(..));
+                return Control::from(!this.is_empty());
             }
 
             Control::Unchanged
@@ -305,12 +319,12 @@ mod tests {
 
         // Right should be ignored while switch is true
         right_push.push_with_cycle(&mut runtime, vec![10, 20]);
-        assert_eq!(*switch_node.borrow(), Vec::<i32>::new()); // Empty, right was ignored
+        assert_eq!(*switch_node.borrow(), vec![1, 2, 3]); // unchanged, right was ignored
         assert!(!runtime.executor().has_mutated(&switch_node));
 
         // Switch to right (false)
         switch_push.push_with_cycle(&mut runtime, false);
-        assert_eq!(*switch_node.borrow(), Vec::<i32>::new()); // Switch alone doesn't add data
+        assert_eq!(*switch_node.borrow(), vec![10, 20]); // Switch moves data to right
 
         // Now right should work
         right_push.push_with_cycle(&mut runtime, vec![30, 40]);
@@ -319,7 +333,7 @@ mod tests {
 
         // Left should be ignored while switch is false
         left_push.push_with_cycle(&mut runtime, vec![100, 200]);
-        assert_eq!(*switch_node.borrow(), Vec::<i32>::new()); // Empty, left was ignored
+        assert_eq!(*switch_node.borrow(), vec![30, 40]); // unchanged, left was ignored
         assert!(!runtime.executor().has_mutated(&switch_node));
     }
 
@@ -345,17 +359,18 @@ mod tests {
 
         // Right should be ignored while switch is true
         right_push.push_with_cycle(&mut runtime, vec![10, 20]);
-        assert_eq!(*switch_node.borrow(), Vec::<i32>::new()); // Empty, right was ignored
+        assert_eq!(*switch_node.borrow(), vec![1, 2, 3]); // unchanged, right was ignored
         assert_eq!(*right_parent.borrow(), vec![10, 20]); // Right should still have data
         assert!(!runtime.executor().has_mutated(&switch_node));
 
         // Switch to right (false)
         switch_push.push_with_cycle(&mut runtime, false);
-        assert_eq!(*switch_node.borrow(), Vec::<i32>::new()); // Switch alone doesn't add data
+        assert_eq!(*switch_node.borrow(), vec![10, 20]); // Switch to right and pull data
+        assert!(right_parent.borrow().is_empty());
 
         // Now right should work and be drained
         right_push.push_with_cycle(&mut runtime, vec![30, 40]);
-        assert_eq!(*switch_node.borrow(), vec![10, 20, 30, 40]); // Gets existing + new data
+        assert_eq!(*switch_node.borrow(), vec![30, 40]); // Gets data
         assert_eq!(*right_parent.borrow(), Vec::<i32>::new()); // Should be drained
         assert!(runtime.executor().has_mutated(&switch_node));
     }
@@ -493,7 +508,7 @@ mod tests {
 
         // Create switch node without initial value (defaults to false)
         let switch_node_data =
-            NodeBuilder::new(false).build(runtime.executor(), |_, _| Control::Unchanged);
+            NodeBuilder::new(true).build(runtime.executor(), |_, _| Control::Unchanged);
 
         let switch_node = switch_stream_node(
             runtime.executor(),
@@ -502,11 +517,11 @@ mod tests {
             switch_node_data.clone(),
         );
 
-        // Should start with right (false) since that's the default
-        right_push.push_with_cycle(&mut runtime, vec![1, 2]);
+        // Should start with the left (true) since that's the default
+        left_push.push_with_cycle(&mut runtime, vec![1, 2]);
         assert_eq!(*switch_node.borrow(), vec![1, 2]);
 
-        left_push.push_with_cycle(&mut runtime, vec![10, 20]);
-        assert_eq!(*switch_node.borrow(), Vec::<i32>::new()); // Left ignored
+        right_push.push_with_cycle(&mut runtime, vec![10, 20]);
+        assert_eq!(*switch_node.borrow(), vec![1, 2]); // unchanged
     }
 }
