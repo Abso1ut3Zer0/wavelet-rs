@@ -2,9 +2,9 @@ use crate::runtime::{Executor, Node};
 use std::cell::{OnceCell, RefCell};
 use std::rc::Rc;
 
-/// A dependency injection factory for creating single-instance nodes with lazy initialization.
+/// A dependency injection factory for creating single-instance wsnl with lazy initialization.
 ///
-/// `SimpleFactory<T>` provides build-time configuration for nodes that should only
+/// `SimpleFactory<T>` provides build-time configuration for wsnl that should only
 /// be created once per factory instance. Uses `OnceCell` for thread-safe lazy
 /// initialization - the factory function is called exactly once on the first
 /// `get()` request, and subsequent calls return the cached node.
@@ -38,7 +38,7 @@ use std::rc::Rc;
 ///         }),
 /// };
 ///
-/// // Runtime: Multiple nodes can depend on the same config instance
+/// // Runtime: Multiple wsnl can depend on the same config instance
 /// let config_node = config_factory.get(&mut executor);
 ///
 /// let processor1 = NodeBuilder::new(DataProcessor::new())

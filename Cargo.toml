@@ -1,6 +1,6 @@
 [package]
 name = "wavelet"
-version = "0.1.2"
+version = "0.2.0"
 edition = "2024"
 description = "High-performance graph-based stream processing runtime"
 license = "MIT OR Apache-2.0"
@@ -24,9 +24,9 @@ runtime = []
 factories = ["runtime"]
 testing = ["runtime"]
 channel = ["runtime"]
-nodes = ["runtime"]
+wsnl = ["runtime"]
 unstable = ["runtime"]
-full = ["runtime", "factories", "testing", "channel", "nodes"]
+full = ["runtime", "factories", "testing", "channel", "wsnl"]
 
 [package.metadata.docs.rs]
 all-features = true

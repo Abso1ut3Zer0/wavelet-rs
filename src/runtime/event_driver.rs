@@ -61,7 +61,7 @@ impl Notifier {
 /// Unified event management system that coordinates all event sources.
 ///
 /// The `EventDriver` orchestrates the three core event types in the runtime:
-/// - **Yield events**: Immediate scheduling requests from nodes
+/// - **Yield events**: Immediate scheduling requests from wsnl
 /// - **Timer events**: Time-based scheduling for delayed execution
 /// - **I/O events**: External events from network, files, or user input
 ///
@@ -123,7 +123,7 @@ impl EventDriver {
         )
     }
 
-    /// Polls all event sources and schedules ready nodes.
+    /// Polls all event sources and schedules ready wsnl.
     ///
     /// Coordinates event polling across all three drivers in a specific order:
     /// 1. **Yield events**: Process immediate scheduling requests first

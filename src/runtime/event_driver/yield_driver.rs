@@ -5,7 +5,7 @@ use petgraph::prelude::NodeIndex;
 /// Manages immediate node scheduling for deferred execution.
 ///
 /// The `YieldDriver` provides the framework's equivalent of `yield_now()` -
-/// allowing nodes to defer their execution to the next cycle or schedule
+/// allowing wsnl to defer their execution to the next cycle or schedule
 /// themselves for immediate re-execution. This is particularly useful for:
 ///
 /// - **Initialization**: Nodes can schedule themselves during `on_init`
@@ -16,7 +16,7 @@ use petgraph::prelude::NodeIndex;
 /// Unlike I/O or timer events, yield scheduling happens immediately within
 /// the current polling cycle, making it ideal for control flow management.
 pub struct YieldDriver {
-    /// Queue of nodes waiting to be scheduled in the current cycle
+    /// Queue of wsnl waiting to be scheduled in the current cycle
     indices: Vec<NodeIndex>,
 }
 
@@ -45,7 +45,7 @@ impl YieldDriver {
         self.indices.push(node_index);
     }
 
-    /// Processes all queued yield requests and schedules the nodes.
+    /// Processes all queued yield requests and schedules the wsnl.
     ///
     /// Drains the internal queue and attempts to schedule each node,
     /// using epoch-based deduplication to prevent double-scheduling.

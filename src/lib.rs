@@ -5,24 +5,23 @@ pub use petgraph::prelude::NodeIndex;
 pub mod channel;
 #[cfg(feature = "factories")]
 pub mod factory;
-#[cfg(feature = "nodes")]
-pub mod nodes;
 #[cfg(feature = "runtime")]
 pub mod runtime;
 #[cfg(feature = "testing")]
 pub mod testing;
+#[cfg(feature = "wsnl")]
+pub mod wsnl;
 
 // TODO list:
-//   - Channel to communicate with graph node from background thread
+//   - Improvements to GC so we can remove hanging event driver resources
+//   - More standard node library implementations
 //   - Timer driver improvements
-//   - Improve docs around Observe relationships + patterns + examples
-//   - Subgraph factory traits
 //   - Trace logging + metrics capable of tracking subgraphs
 
-/// Defines how nodes relate to each other in the computation graph.
+/// Defines how wsnl relate to each other in the computation graph.
 ///
-/// Relationships determine when and how changes propagate between nodes.
-/// This is fundamental to the incremental computation model - nodes only
+/// Relationships determine when and how changes propagate between wsnl.
+/// This is fundamental to the incremental computation model - wsnl only
 /// recompute when their dependencies change.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, EnumAsInner)]
 pub enum Relationship {
@@ -48,13 +47,13 @@ pub enum Relationship {
 /// after the node completes execution.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, EnumAsInner)]
 pub enum Control {
-    /// Schedule all nodes with `Trigger` relationships to this node.
+    /// Schedule all wsnl with `Trigger` relationships to this node.
     ///
-    /// Use when this node has mutated and downstream nodes should react
+    /// Use when this node has mutated and downstream wsnl should react
     /// to the changes.
     Broadcast,
 
-    /// This node did not change - don't schedule any dependent nodes.
+    /// This node did not change - don't schedule any dependent wsnl.
     ///
     /// Use when the node has processed data but its state didn't
     /// change in a way that would affect downstream computations.

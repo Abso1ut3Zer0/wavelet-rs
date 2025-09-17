@@ -1,9 +1,44 @@
+//! # Stream Transform Nodes
+//!
+//! Transform wsnl process collections of items, applying operations like filtering,
+//! deduplication, and accumulation. All transform wsnl operate on `Node<Vec<T>>` inputs
+//! and provide different output types based on the transformation.
+
 use crate::Control;
 use crate::prelude::Node;
 use crate::runtime::{Executor, NodeBuilder};
 use ahash::{HashSet, HashSetExt};
 use std::hash::Hash;
 
+/// Creates a node that accumulates values from a stream using a fold function.
+///
+/// The accumulator maintains state across cycles, building up results over time.
+/// Each incoming batch of items is folded into the current accumulated value.
+///
+/// # Arguments
+/// * `parent` - Source node containing batches of items to accumulate
+/// * `initial` - Starting value for the accumulator
+/// * `fold_fn` - Function that combines each item with the accumulator state
+///
+/// # Returns
+/// A node containing the accumulated result of type `A`
+///
+/// # Behavior
+/// - Always broadcasts when triggered (even if no items to process)
+/// - Accumulator state persists across cycles
+/// - Processes all items in each batch sequentially
+///
+/// # Examples
+/// ```rust, ignore
+/// // Running sum of numbers
+/// let sum = accumulate_stream_node(executor, numbers, 0, |acc, &item| *acc += item);
+///
+/// // Count and sum statistics
+/// let stats = accumulate_stream_node(executor, numbers, (0, 0), |acc, &item| {
+///     acc.0 += 1;      // count
+///     acc.1 += item;   // sum
+/// });
+/// ```
 pub fn accumulate_stream_node<T, A>(
     executor: &mut Executor,
     parent: Node<Vec<T>>,
@@ -18,6 +53,35 @@ pub fn accumulate_stream_node<T, A>(
         })
 }
 
+/// Creates a node that accumulates values within each cycle, resetting between cycles.
+///
+/// Unlike `accumulate_stream_node`, this resets to the default value at the start of
+/// each cycle, making it suitable for per-batch aggregations rather than running totals.
+///
+/// # Arguments
+/// * `parent` - Source node containing batches of items to accumulate
+/// * `fold_fn` - Function that combines each item with the accumulator state
+///
+/// # Returns
+/// A node containing the per-cycle accumulated result of type `A`
+///
+/// # Behavior
+/// - Always broadcasts when triggered
+/// - Resets accumulator to `A::default()` at start of each cycle
+/// - Processes current batch only, ignoring previous cycles
+///
+/// # Examples
+/// ```rust, ignore
+/// // Per-batch sum (resets each cycle)
+/// let batch_sum = accumulate_stream_with_reset_node(executor, numbers, |acc, &item| {
+///     *acc += item;
+/// });
+///
+/// // Per-batch statistics
+/// let batch_stats = accumulate_stream_with_reset_node(executor, trades, |stats: &mut Stats, trade| {
+///     stats.update(trade);
+/// });
+/// ```
 pub fn accumulate_stream_with_reset_node<T, A: Default>(
     executor: &mut Executor,
     parent: Node<Vec<T>>,
@@ -32,6 +96,31 @@ pub fn accumulate_stream_with_reset_node<T, A: Default>(
         })
 }
 
+/// Creates a node that removes duplicate items from each batch based on a key function.
+///
+/// Within each cycle, only the first occurrence of each unique key is kept.
+/// Deduplication state resets between cycles.
+///
+/// # Arguments
+/// * `parent` - Source node containing batches of potentially duplicate items
+/// * `key_fn` - Function that extracts a key for deduplication from each item
+///
+/// # Returns
+/// A node containing deduplicated items as `Vec<T>`
+///
+/// # Behavior
+/// - Only broadcasts if deduplicated result is non-empty
+/// - Uses first-wins deduplication within each batch
+/// - Deduplication state is cycle-local (resets each time)
+///
+/// # Examples
+/// ```rust, ignore
+/// // Remove duplicate values
+/// let unique_numbers = deduplicate_stream_node(executor, numbers, |&x| x);
+///
+/// // Remove duplicate trades by symbol
+/// let unique_trades = deduplicate_stream_node(executor, trades, |trade| &trade.symbol);
+/// ```
 pub fn deduplicate_stream_node<K: Eq + Hash + 'static, T: Clone>(
     executor: &mut Executor,
     parent: Node<Vec<T>>,
@@ -55,6 +144,30 @@ pub fn deduplicate_stream_node<K: Eq + Hash + 'static, T: Clone>(
         })
 }
 
+/// Creates a node that filters items from each batch using a predicate function.
+///
+/// Only items that satisfy the predicate are included in the output.
+///
+/// # Arguments
+/// * `parent` - Source node containing batches of items to filter
+/// * `predicate` - Function that returns true for items to keep
+///
+/// # Returns
+/// A node containing filtered items as `Vec<T>`
+///
+/// # Behavior
+/// - Only broadcasts if filtered result is non-empty
+/// - Preserves order of items that pass the filter
+/// - Clears output buffer before processing each batch
+///
+/// # Examples
+/// ```rust, ignore
+/// // Keep only even numbers
+/// let evens = filter_stream_node(executor, numbers, |&x| x % 2 == 0);
+///
+/// // Keep only large orders
+/// let large_orders = filter_stream_node(executor, orders, |order| order.quantity > 1000);
+/// ```
 pub fn filter_stream_node<T: Clone>(
     executor: &mut Executor,
     parent: Node<Vec<T>>,

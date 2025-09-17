@@ -1,3 +1,8 @@
+//! # Control Flow Nodes
+//!
+//! Nodes that manage data routing, switching, and flow control within the execution graph.
+//! These wsnl provide dynamic routing capabilities and conditional data flow patterns.
+
 use crate::Control;
 use crate::channel::{Sender, TryReceiveError};
 use crate::prelude::{Executor, Node, NodeBuilder, WeakNode};
@@ -6,6 +11,10 @@ use std::collections::HashMap;
 use std::hash::Hash;
 use std::rc::Rc;
 
+/// A dynamic router that distributes items to different output wsnl based on routing keys.
+///
+/// The Router maintains a cache of output wsnl, creating them on-demand as new routing
+/// keys are encountered. Each output node receives only items that match its key.
 pub struct Router<K: Eq + Hash, T: 'static> {
     parent: Option<Node<Vec<T>>>,
     cache: Rc<RefCell<HashMap<K, (WeakNode<Vec<T>>, usize)>>>,
@@ -19,6 +28,22 @@ impl<K: Clone + Eq + Hash + 'static, T: 'static> Router<K, T> {
         }
     }
 
+    /// Gets or creates an output node for the specified routing key.
+    ///
+    /// If a node for this key already exists and is still alive, returns the existing node.
+    /// Otherwise, creates a new output node and caches it for future use.
+    ///
+    /// # Arguments
+    /// * `executor` - The executor to create new wsnl in
+    /// * `key` - The routing key to get/create a node for
+    ///
+    /// # Returns
+    /// A node that will receive items matching the routing key
+    ///
+    /// # Node Lifecycle
+    /// - Output wsnl are automatically cleaned up when dropped
+    /// - WeakNode references prevent memory leaks if outputs are dropped
+    /// - Router maintains epoch tracking for proper data flow
     pub fn route(&self, executor: &mut Executor, key: K) -> Node<Vec<T>> {
         let mut cache = self.cache.borrow_mut();
 
@@ -57,6 +82,38 @@ impl<K: Clone + Eq + Hash + 'static, T: 'static> Router<K, T> {
     }
 }
 
+/// Creates a router node that consumes items from a source and distributes them by key.
+///
+/// This router processes batches of items, applying the routing function to each item
+/// to determine which output node should receive it. Items are consumed from the source.
+///
+/// # Arguments
+/// * `executor` - The executor to create the router in
+/// * `source` - Source node containing batches of items to route
+/// * `route` - Function that extracts a routing key from each item
+///
+/// # Returns
+/// A router node that can create output wsnl via `route()` method
+///
+/// # Behavior
+/// - Consumes all items from source using `drain()`
+/// - Routes each item to the appropriate output node based on key
+/// - Automatically clears output wsnl at cycle boundaries
+/// - Only schedules output wsnl that receive data
+/// - Returns `Control::Unchanged` (routing is transparent)
+///
+/// # Examples
+/// ```rust, ignore
+/// // Route orders by instrument
+/// let order_router = take_route_stream_node(executor, orders, |order| &order.symbol);
+/// let aapl_orders = order_router.borrow().route(executor, "AAPL");
+/// let googl_orders = order_router.borrow().route(executor, "GOOGL");
+///
+/// // Route numbers by even/odd
+/// let parity_router = take_route_stream_node(executor, numbers, |&n| n % 2);
+/// let evens = parity_router.borrow().route(executor, 0);
+/// let odds = parity_router.borrow().route(executor, 1);
+/// ```
 pub fn take_route_stream_node<K: Clone + Eq + Hash, T>(
     executor: &mut Executor,
     source: Node<Vec<T>>,
@@ -89,6 +146,35 @@ pub fn take_route_stream_node<K: Clone + Eq + Hash, T>(
         })
 }
 
+/// Creates a router node that receives items from a channel and distributes them by key.
+///
+/// This router polls a channel for incoming items up to a specified limit per cycle,
+/// routing each item to the appropriate output node. Useful for cross-thread routing.
+///
+/// # Arguments
+/// * `executor` - The executor to create the router in
+/// * `capacity` - Channel capacity for buffering items
+/// * `poll_limit` - Maximum items to process per cycle
+/// * `route` - Function that extracts a routing key from each item
+///
+/// # Returns
+/// A tuple of (router_node, sender) for sending items to route
+///
+/// # Behavior
+/// - Polls up to `poll_limit` items from channel per cycle
+/// - Routes each item to appropriate output node
+/// - Returns `Control::Sweep` if channel is closed
+/// - Integrates with cross-thread notification systems
+///
+/// # Examples
+/// ```rust, ignore
+/// // Cross-thread market data router
+/// let (md_router, md_sender) = channel_route_stream_node(executor, 1024, 100, |tick| &tick.symbol)?;
+/// let eurusd_ticks = md_router.borrow().route(executor, "EURUSD");
+///
+/// // Send from market data thread
+/// md_sender.blocking_send(tick)?;
+/// ```
 pub fn channel_route_stream_node<K: Clone + Eq + Hash, T>(
     executor: &mut Executor,
     capacity: usize,
@@ -126,6 +212,35 @@ pub fn channel_route_stream_node<K: Clone + Eq + Hash, T>(
         })
 }
 
+/// Creates a switch node that selects between two stream sources based on a boolean control.
+///
+/// The switch observes both input streams and the control signal, outputting data from
+/// the currently selected source. Data is cloned, leaving sources unmodified.
+///
+/// # Arguments
+/// * `executor` - The executor to create the switch in
+/// * `primary` - Primary input stream (selected when switch is true)
+/// * `secondary` - Secondary input stream (selected when switch is false)
+/// * `switch` - Boolean control node that determines active source
+///
+/// # Returns
+/// A node containing data from the currently selected source
+///
+/// # Behavior
+/// - Switch changes take precedence over input changes
+/// - Only processes data from currently selected source
+/// - Clones data from sources (non-destructive)
+/// - Broadcasts only when output contains data
+/// - Switch changes immediately pull current data from newly selected source
+///
+/// # Examples
+/// ```rust, ignore
+/// // Failover between primary and backup data feeds
+/// let active_feed = switch_stream_node(executor, primary_feed, backup_feed, failover_switch);
+///
+/// // A/B testing between algorithms
+/// let results = switch_stream_node(executor, algo_a_results, algo_b_results, ab_test_flag);
+/// ```
 pub fn switch_stream_node<T: Clone>(
     executor: &mut Executor,
     primary: Node<Vec<T>>,
@@ -164,6 +279,25 @@ pub fn switch_stream_node<T: Clone>(
         })
 }
 
+/// Creates a switch node that consumes data from the selected stream source.
+///
+/// Similar to `switch_stream_node` but consumes data from sources using `drain()`,
+/// making it suitable for exclusive processing scenarios.
+///
+/// # Arguments
+/// * `executor` - The executor to create the switch in
+/// * `primary` - Primary input stream (selected when switch is true)
+/// * `secondary` - Secondary input stream (selected when switch is false)
+/// * `switch` - Boolean control node that determines active source
+///
+/// # Returns
+/// A node containing data consumed from the currently selected source
+///
+/// # Behavior
+/// - Consumes data from sources using `drain()`
+/// - Switch changes immediately consume current data from newly selected source
+/// - Only processes data from currently selected source
+/// - Other behaviors same as `switch_stream_node`
 pub fn take_switch_stream_node<T>(
     executor: &mut Executor,
     primary: Node<Vec<T>>,
@@ -202,6 +336,35 @@ pub fn take_switch_stream_node<T>(
         })
 }
 
+/// Creates a switch node that selects between two individual item sources.
+///
+/// Unlike stream switches, this operates on individual values rather than collections.
+/// The switch clones values from sources, leaving them unmodified.
+///
+/// # Arguments
+/// * `executor` - The executor to create the switch in
+/// * `primary` - Primary input value (selected when switch is true)
+/// * `secondary` - Secondary input value (selected when switch is false)
+/// * `switch` - Boolean control node that determines active source
+/// * `initial` - Initial value for the switch output
+///
+/// # Returns
+/// A node containing the value from the currently selected source
+///
+/// # Behavior
+/// - Always broadcasts when any selected input changes
+/// - Switch changes take precedence over input changes
+/// - Clones values from sources (non-destructive)
+/// - Immediately adopts value from newly selected source on switch
+///
+/// # Examples
+/// ```rust, ignore
+/// // Switch between configuration values
+/// let active_config = switch_node(executor, prod_config, test_config, environment_flag, default_config);
+///
+/// // Dynamic parameter selection
+/// let threshold = switch_node(executor, high_threshold, low_threshold, volatility_mode, 0.5);
+/// ```
 pub fn switch_node<T: Clone>(
     executor: &mut Executor,
     primary: Node<T>,
@@ -238,6 +401,25 @@ pub fn switch_node<T: Clone>(
         })
 }
 
+/// Creates a switch node that consumes values from the selected source.
+///
+/// Similar to `switch_node` but consumes values using `std::mem::take()`,
+/// resetting sources to their default values after consumption.
+///
+/// # Arguments
+/// * `executor` - The executor to create the switch in
+/// * `primary` - Primary input value (selected when switch is true)
+/// * `secondary` - Secondary input value (selected when switch is false)
+/// * `switch` - Boolean control node that determines active source
+///
+/// # Returns
+/// A node containing the value consumed from the currently selected source
+///
+/// # Behavior
+/// - Consumes values using `std::mem::take()`, resetting sources to `T::default()`
+/// - Switch changes immediately consume current value from newly selected source
+/// - Always broadcasts when any selected input changes
+/// - Starts with `T::default()` initial value
 pub fn take_switch_node<T: Default>(
     executor: &mut Executor,
     primary: Node<T>,
