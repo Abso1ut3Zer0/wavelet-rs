@@ -210,10 +210,10 @@ mod tests {
     #[test]
     fn test_router_drop() {
         let mut runtime = TestRuntime::new();
-        let (parent, push) = push_node(runtime.executor(), Vec::new());
+        let (parent, _push) = push_node(runtime.executor(), Vec::new());
         let router = take_router_node(runtime.executor(), parent.clone(), |item| item % 2);
-        let node0 = router.borrow().route(runtime.executor(), 0);
-        let node1 = router.borrow().route(runtime.executor(), 1);
+        let _node0 = router.borrow().route(runtime.executor(), 0);
+        let _node1 = router.borrow().route(runtime.executor(), 1);
         assert_eq!(router.borrow().cache.borrow().len(), 2);
 
         drop(router);
