@@ -1,8 +1,7 @@
-use crate::runtime::CycleFn;
-use crate::runtime::event_driver::Notifier;
 use crate::runtime::executor::{ExecutionContext, Executor};
 use crate::runtime::garbage_collector::GarbageCollector;
 use crate::runtime::graph::NodeContext;
+use crate::runtime::{CycleFn, Notifier};
 use crate::{Control, Relationship};
 use petgraph::prelude::NodeIndex;
 use std::cell::UnsafeCell;
@@ -569,7 +568,7 @@ impl<T: 'static> NodeBuilder<T> {
         F: FnMut(&mut T, &mut ExecutionContext) -> Control + 'static,
     {
         let node = self.build(executor, cycle_fn);
-        let notifier = executor.io_driver().register_notifier(node.index())?;
+        let notifier = executor.register_notifier(node.index());
         Ok((node, notifier))
     }
 
@@ -662,7 +661,7 @@ impl<T: 'static> NodeBuilder<T> {
             .map(|d| d + 1)
             .unwrap_or(0);
 
-        let notifier = executor.io_driver().register_notifier(node.index())?;
+        let notifier = executor.register_notifier(node.index());
         let (tx, rx) = new_channel(capacity, notifier);
         {
             let state = node.downgrade();

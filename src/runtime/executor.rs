@@ -1,4 +1,5 @@
 use crate::Control;
+use crate::runtime::Notifier;
 use crate::runtime::clock::TriggerTime;
 use crate::runtime::event_driver::YieldDriver;
 use crate::runtime::event_driver::{EventDriver, IoDriver, IoSource, TimerDriver, TimerSource};
@@ -294,6 +295,11 @@ impl Executor {
     /// during node initialization or for self-triggering patterns.
     pub const fn yield_driver(&mut self) -> &mut YieldDriver {
         self.event_driver.yield_driver()
+    }
+
+    #[inline(always)]
+    pub fn register_notifier(&self, node_index: NodeIndex) -> Notifier {
+        self.event_driver.register_notifier(node_index)
     }
 
     /// Provides internal access to the computation graph (runtime internal only).
@@ -608,7 +614,7 @@ mod tests {
     }
 
     #[test]
-    fn test_io_event_handling() {
+    fn test_notifier_handling() {
         let mut executor = Executor::new();
         let mut clock = TestClock::new();
 
@@ -620,7 +626,7 @@ mod tests {
             })
             .unwrap();
 
-        notifier.notify().unwrap();
+        notifier.notify();
 
         // Run cycle - this should pick up the I/O event and schedule the node
         let now = clock.trigger_time();
@@ -630,6 +636,24 @@ mod tests {
 
         // Verify the node was called due to an I/O event
         assert_eq!(*node.borrow(), 1);
+
+        let unknown_notifier = executor.register_notifier(NodeIndex::from(100));
+        unknown_notifier.notify();
+
+        let driver = &mut executor.event_driver;
+        let graph = &mut executor.graph;
+        let scheduler = unsafe { &mut *executor.scheduler.get() };
+        let epoch = executor.epoch + 1;
+        let now = clock.trigger_time();
+        driver
+            .poll(graph, scheduler, None, now.instant, epoch)
+            .unwrap();
+
+        let mut count = 0;
+        while let Some(_) = scheduler.pop() {
+            count += 1;
+        }
+        assert_eq!(count, 0);
     }
 
     #[test]

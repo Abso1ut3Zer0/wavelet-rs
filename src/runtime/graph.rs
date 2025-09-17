@@ -69,7 +69,7 @@ pub struct Graph {
 impl Graph {
     pub(crate) fn new() -> Self {
         Self {
-            inner: petgraph::prelude::StableGraph::new(),
+            inner: StableGraph::new(),
         }
     }
 
@@ -78,15 +78,22 @@ impl Graph {
     /// Returns `Some(depth)` if the node hasn't been scheduled this epoch,
     /// or `None` if it's already been scheduled. This prevents duplicate
     /// scheduling within a single execution cycle.
+    ///
+    /// Note: we safely check here if the node exists to avoid any data
+    /// races with background threads informing the graph of an update
+    /// to a node that was garbage collected.
     #[inline(always)]
     pub(crate) fn can_schedule(&mut self, node_index: NodeIndex, epoch: usize) -> Option<u32> {
-        let ctx = &mut self.inner[node_index];
-        if ctx.sched_epoch == epoch {
-            return None;
+        if let Some(ctx) = self.inner.node_weight_mut(node_index) {
+            if ctx.sched_epoch == epoch {
+                return None;
+            }
+
+            ctx.sched_epoch = epoch;
+            return Some(ctx.depth);
         }
 
-        ctx.sched_epoch = epoch;
-        Some(ctx.depth)
+        None
     }
 
     /// Returns an iterator over child nodes with `Trigger` relationships.
@@ -158,7 +165,7 @@ impl Graph {
     pub(crate) fn node_count(&self) -> usize {
         self.inner.node_count()
     }
-    
+
     #[allow(dead_code)]
     pub(crate) fn is_empty(&self) -> bool {
         self.node_count() == 0
