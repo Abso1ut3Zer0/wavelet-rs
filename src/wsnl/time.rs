@@ -65,7 +65,7 @@ pub fn periodic_trigger_node(
         .build(executor, move |this, ctx| {
             let source = ctx.register_timer(ctx.current(), ctx.now() + duration);
             if this.is_some() {
-                this.insert(source);
+                let _ = this.insert(source);
                 Control::Broadcast
             } else {
                 Control::Unchanged
