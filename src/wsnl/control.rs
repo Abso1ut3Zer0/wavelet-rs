@@ -5,7 +5,7 @@
 
 use crate::Control;
 use crate::channel::{Sender, TryReceiveError};
-use crate::prelude::{Executor, Node, NodeBuilder, WeakNode};
+use crate::prelude::{ExclusiveNode, Executor, Node, NodeBuilder, RawHandle, WeakNode};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::hash::Hash;
@@ -16,12 +16,12 @@ use std::rc::Rc;
 /// The Router maintains a cache of output wsnl, creating them on-demand as new routing
 /// keys are encountered. Each output node receives only items that match its key.
 pub struct Router<K: Eq + Hash, T: 'static> {
-    parent: Option<Node<Vec<T>>>,
+    parent: Option<RawHandle>,
     cache: Rc<RefCell<HashMap<K, (WeakNode<Vec<T>>, usize)>>>,
 }
 
 impl<K: Clone + Eq + Hash + 'static, T: 'static> Router<K, T> {
-    fn new(parent: Option<Node<Vec<T>>>) -> Self {
+    fn new(parent: Option<RawHandle>) -> Self {
         Self {
             parent,
             cache: Rc::new(RefCell::new(HashMap::new())),
@@ -133,7 +133,7 @@ pub fn route_stream_node<K: Clone + Eq + Hash, T: Clone>(
 ) -> Node<Router<K, T>> {
     let source = source.clone();
     let gc = executor.garbage_collector();
-    NodeBuilder::new(Router::new(Some(source.clone())))
+    NodeBuilder::new(Router::new(Some(source.raw_handle())))
         .triggered_by(&source)
         .on_drop(move |this| {
             this.cache.borrow().values().for_each(|(weak, _)| {
@@ -192,12 +192,11 @@ pub fn route_stream_node<K: Clone + Eq + Hash, T: Clone>(
 /// ```
 pub fn take_route_stream_node<K: Clone + Eq + Hash, T>(
     executor: &mut Executor,
-    source: Node<Vec<T>>,
+    source: ExclusiveNode<Vec<T>>,
     route: impl Fn(&T) -> K + 'static,
 ) -> Node<Router<K, T>> {
-    let source = source.clone();
     let gc = executor.garbage_collector();
-    NodeBuilder::new(Router::new(Some(source.clone())))
+    NodeBuilder::new(Router::new(Some(source.raw_handle())))
         .triggered_by(&source)
         .on_drop(move |this| {
             this.cache.borrow().values().for_each(|(weak, _)| {
@@ -206,7 +205,7 @@ pub fn take_route_stream_node<K: Clone + Eq + Hash, T>(
             this.cache.borrow_mut().clear();
         })
         .build(executor, move |this, ctx| {
-            source.borrow_mut().drain(..).for_each(|item| {
+            source.drain().for_each(|item| {
                 if let Some((node, epoch)) = this.cache.borrow_mut().get_mut(&route(&item))
                     && let Some(node) = node.upgrade()
                 {
@@ -376,8 +375,8 @@ pub fn switch_stream_node<T: Clone>(
 /// - Other behaviors same as `switch_stream_node`
 pub fn take_switch_stream_node<T>(
     executor: &mut Executor,
-    primary: Node<Vec<T>>,
-    secondary: Node<Vec<T>>,
+    primary: ExclusiveNode<Vec<T>>,
+    secondary: ExclusiveNode<Vec<T>>,
     switch: Node<bool>,
 ) -> Node<Vec<T>> {
     let mut use_primary = *switch.borrow();
@@ -390,9 +389,9 @@ pub fn take_switch_stream_node<T>(
                 this.clear();
                 use_primary = *switch.borrow();
                 if use_primary {
-                    this.extend(primary.borrow_mut().drain(..));
+                    this.extend(primary.drain());
                 } else {
-                    this.extend(secondary.borrow_mut().drain(..));
+                    this.extend(secondary.drain());
                 }
 
                 return Control::from(!this.is_empty());
@@ -400,11 +399,11 @@ pub fn take_switch_stream_node<T>(
 
             if use_primary && ctx.has_mutated(&primary) {
                 this.clear();
-                this.extend(primary.borrow_mut().drain(..));
+                this.extend(primary.drain());
                 return Control::from(!this.is_empty());
             } else if !use_primary && ctx.has_mutated(&secondary) {
                 this.clear();
-                this.extend(secondary.borrow_mut().drain(..));
+                this.extend(secondary.drain());
                 return Control::from(!this.is_empty());
             }
 
@@ -498,10 +497,12 @@ pub fn switch_node<T: Clone>(
 /// - Starts with `T::default()` initial value
 pub fn take_switch_node<T: Default>(
     executor: &mut Executor,
-    primary: Node<T>,
-    secondary: Node<T>,
+    primary: ExclusiveNode<T>,
+    secondary: ExclusiveNode<T>,
     switch: Node<bool>,
 ) -> Node<T> {
+    let primary = primary.downgrade();
+    let secondary = secondary.downgrade();
     let mut use_primary = *switch.borrow();
     NodeBuilder::new(T::default())
         .triggered_by(&primary)
@@ -577,7 +578,10 @@ mod tests {
     fn test_take_router() {
         let mut runtime = TestRuntime::new();
         let (parent, push) = push_node(runtime.executor(), Vec::new());
-        let router = take_route_stream_node(runtime.executor(), parent.clone(), |item| item % 2);
+        let router =
+            take_route_stream_node(runtime.executor(), parent.upgrade().unwrap(), |item| {
+                item % 2
+            });
         let node0 = router.borrow().route(runtime.executor(), 0);
         let node1 = router.borrow().route(runtime.executor(), 1);
         assert_eq!(router.borrow().cache.borrow().len(), 2);
@@ -653,14 +657,17 @@ mod tests {
     fn test_router_drop() {
         let mut runtime = TestRuntime::new();
         let (parent, _push) = push_node(runtime.executor(), Vec::new());
-        let router = take_route_stream_node(runtime.executor(), parent.clone(), |item| item % 2);
+        let router =
+            take_route_stream_node(runtime.executor(), parent.upgrade().unwrap(), |item| {
+                item % 2
+            });
         let _node0 = router.borrow().route(runtime.executor(), 0);
         let _node1 = router.borrow().route(runtime.executor(), 1);
         assert_eq!(router.borrow().cache.borrow().len(), 2);
 
         drop(router);
         runtime.cycle_once();
-        assert_eq!(runtime.executor().graph().node_count(), 1); // only push node remaining
+        assert_eq!(runtime.executor().graph().node_count(), 0); // no nodes left in graph
     }
 
     #[test]
@@ -711,32 +718,28 @@ mod tests {
 
         let switch_node = take_switch_stream_node(
             runtime.executor(),
-            left_parent.clone(),
-            right_parent.clone(),
+            left_parent.upgrade().unwrap(),
+            right_parent.upgrade().unwrap(),
             switch_parent.clone(),
         );
 
         // Initially uses left (true) and drains it
         left_push.push_with_cycle(&mut runtime, vec![1, 2, 3]);
         assert_eq!(*switch_node.borrow(), vec![1, 2, 3]);
-        assert_eq!(*left_parent.borrow(), Vec::<i32>::new()); // Should be drained
         assert!(runtime.executor().has_mutated(&switch_node));
 
         // Right should be ignored while switch is true
         right_push.push_with_cycle(&mut runtime, vec![10, 20]);
         assert_eq!(*switch_node.borrow(), vec![1, 2, 3]); // unchanged, right was ignored
-        assert_eq!(*right_parent.borrow(), vec![10, 20]); // Right should still have data
         assert!(!runtime.executor().has_mutated(&switch_node));
 
         // Switch to right (false)
         switch_push.push_with_cycle(&mut runtime, false);
         assert_eq!(*switch_node.borrow(), vec![10, 20]); // Switch to right and pull data
-        assert!(right_parent.borrow().is_empty());
 
         // Now right should work and be drained
         right_push.push_with_cycle(&mut runtime, vec![30, 40]);
         assert_eq!(*switch_node.borrow(), vec![30, 40]); // Gets data
-        assert_eq!(*right_parent.borrow(), Vec::<i32>::new()); // Should be drained
         assert!(runtime.executor().has_mutated(&switch_node));
     }
 
@@ -943,8 +946,8 @@ mod tests {
 
         let switch_node = take_switch_node(
             runtime.executor(),
-            primary_parent.clone(),
-            secondary_parent.clone(),
+            primary_parent.upgrade().unwrap(),
+            secondary_parent.upgrade().unwrap(),
             switch_parent.clone(),
         );
 
@@ -954,25 +957,21 @@ mod tests {
         // Primary updates should propagate and consume
         primary_push.push_with_cycle(&mut runtime, 100);
         assert_eq!(*switch_node.borrow(), 100);
-        assert_eq!(*primary_parent.borrow(), 0); // Should be taken (reset to default)
         assert!(runtime.executor().has_mutated(&switch_node));
 
         // Secondary updates should be ignored while switch is true
         secondary_push.push_with_cycle(&mut runtime, 200);
         assert_eq!(*switch_node.borrow(), 100); // Unchanged
-        assert_eq!(*secondary_parent.borrow(), 200); // Should still have data
         assert!(!runtime.executor().has_mutated(&switch_node));
 
         // Switch to secondary
         switch_push.push_with_cycle(&mut runtime, false);
         assert_eq!(*switch_node.borrow(), 200); // Should take secondary's value
-        assert_eq!(*secondary_parent.borrow(), 0); // Should be taken
         assert!(runtime.executor().has_mutated(&switch_node));
 
         // Now secondary updates should propagate and consume
         secondary_push.push_with_cycle(&mut runtime, 300);
         assert_eq!(*switch_node.borrow(), 300);
-        assert_eq!(*secondary_parent.borrow(), 0); // Should be taken
         assert!(runtime.executor().has_mutated(&switch_node));
     }
 
@@ -1127,8 +1126,8 @@ mod tests {
 
         let switch_node = take_switch_node(
             runtime.executor(),
-            primary_parent.clone(),
-            secondary_parent.clone(),
+            primary_parent.upgrade().unwrap(),
+            secondary_parent.upgrade().unwrap(),
             switch_parent.clone(),
         );
 
@@ -1142,7 +1141,6 @@ mod tests {
         };
         primary_push.push_with_cycle(&mut runtime, new_primary.clone());
         assert_eq!(*switch_node.borrow(), new_primary);
-        assert_eq!(*primary_parent.borrow(), TestData::default()); // Should be taken
 
         // Switch to secondary
         switch_push.push_with_cycle(&mut runtime, false);
@@ -1151,7 +1149,6 @@ mod tests {
             value: "secondary".to_string(),
         };
         assert_eq!(*switch_node.borrow(), expected_secondary);
-        assert_eq!(*secondary_parent.borrow(), TestData::default()); // Should be taken
     }
 
     #[test]

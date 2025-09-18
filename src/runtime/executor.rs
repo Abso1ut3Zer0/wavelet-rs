@@ -1,5 +1,4 @@
 use crate::Control;
-use crate::runtime::Notifier;
 use crate::runtime::clock::TriggerTime;
 use crate::runtime::event_driver::YieldDriver;
 use crate::runtime::event_driver::{EventDriver, IoDriver, IoSource, TimerDriver, TimerSource};
@@ -7,6 +6,7 @@ use crate::runtime::garbage_collector::GarbageCollector;
 use crate::runtime::graph::Graph;
 use crate::runtime::node::Node;
 use crate::runtime::scheduler::{Scheduler, SchedulerError};
+use crate::runtime::{NodeHandle, Notifier};
 use enum_as_inner::EnumAsInner;
 use mio::Interest;
 use mio::event::Source;
@@ -183,7 +183,7 @@ impl<'a> ExecutionContext<'a> {
     /// Used by wsnl with `Observe` relationships to determine when their
     /// dependencies have changed and action may be needed.
     #[inline(always)]
-    pub fn has_mutated<T>(&self, parent: &Node<T>) -> bool {
+    pub fn has_mutated<N: NodeHandle>(&self, parent: &N) -> bool {
         parent.mut_epoch() == self.epoch
     }
 
