@@ -150,15 +150,13 @@ impl EventDriver {
                 }
             });
         }
-        let mut events = 0;
-        events += self.yield_driver.poll(graph, scheduler, epoch);
-        events += self.timer_driver.poll(graph, scheduler, now, epoch);
-        let timeout = if events > 0 {
-            Some(Duration::ZERO)
-        } else {
-            timeout
-        };
-        self.io_driver.poll(graph, scheduler, timeout, epoch)?;
-        Ok(())
+        self.yield_driver.poll(graph, scheduler, epoch);
+        self.timer_driver.poll(graph, scheduler, now, epoch);
+        if scheduler.has_pending_event() {
+            return self
+                .io_driver
+                .poll(graph, scheduler, Some(Duration::ZERO), epoch);
+        }
+        self.io_driver.poll(graph, scheduler, timeout, epoch)
     }
 }

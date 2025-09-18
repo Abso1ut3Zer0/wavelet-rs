@@ -135,8 +135,7 @@ impl IoDriver {
         scheduler: &mut Scheduler,
         timeout: Option<std::time::Duration>,
         epoch: usize,
-    ) -> io::Result<usize> {
-        let mut events = 0;
+    ) -> io::Result<()> {
         self.events.clear();
         self.poller.poll(&mut self.events, timeout)?;
         self.events.iter().for_each(|event| {
@@ -144,11 +143,10 @@ impl IoDriver {
                 let node_index = self.indices[event.token().0];
                 if let Some(depth) = graph.can_schedule(node_index, epoch) {
                     let _ = scheduler.schedule(node_index, depth).unwrap();
-                    events += 1;
                 }
             }
         });
-        Ok(events)
+        Ok(())
     }
 }
 
