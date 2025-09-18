@@ -1093,4 +1093,20 @@ mod tests {
             .unwrap();
         assert_eq!(executor.graph.node_count(), 1);
     }
+
+    #[test]
+    fn test_no_timeout() {
+        let mut executor = Executor::new();
+        let mut clock = TestClock::new();
+
+        let node = NodeBuilder::new(0)
+            .on_init(|ex, _, idx| ex.yield_driver().yield_now(idx))
+            .build(&mut executor, |this, _| {
+                *this += 1;
+                Control::Broadcast
+            });
+
+        executor.cycle(clock.trigger_time(), None).unwrap();
+        assert_eq!(executor.graph.node_count(), 1);
+    }
 }
