@@ -1,3 +1,5 @@
+#[cfg(feature = "channel")]
+use crate::channel::{Receiver, Sender, new_channel};
 use crate::runtime::executor::{ExecutionContext, Executor};
 use crate::runtime::garbage_collector::GarbageCollector;
 use crate::runtime::graph::NodeContext;
@@ -8,11 +10,101 @@ use std::cell::UnsafeCell;
 use std::collections::HashSet;
 use std::io;
 use std::rc::{Rc, Weak};
-
-#[cfg(feature = "channel")]
-use crate::channel::{Receiver, Sender, new_channel};
+use std::vec::Drain;
 
 type OnDrop<T> = Box<dyn FnMut(&mut T) + 'static>;
+
+/// Common interface for accessing node metadata regardless of ownership model.
+///
+/// NodeHandle provides a unified way to access core node properties (index, depth, mut_epoch)
+/// across different node types including `Node<T>`, `ExclusiveNode<T>`, and `RawHandle`.
+/// This abstraction allows code to work generically with node metadata without caring
+/// about the specific ownership or access patterns.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// fn schedule_node<H: NodeHandle>(scheduler: &mut Scheduler, handle: &H) {
+///     scheduler.schedule(handle.index(), handle.depth());
+/// }
+///
+/// // Works with any node type
+/// schedule_node(&mut scheduler, &regular_node);
+/// schedule_node(&mut scheduler, &exclusive_node);
+/// schedule_node(&mut scheduler, &raw_handle);
+/// ```
+pub trait NodeHandle {
+    fn index(&self) -> NodeIndex;
+    fn depth(&self) -> u32;
+    fn mut_epoch(&self) -> usize;
+}
+
+/// A lightweight handle containing only essential node metadata.
+///
+/// RawHandle stores the minimum information needed to identify and work with a node
+/// in the execution graph without holding references to the actual node data or
+/// requiring borrowing semantics. This is particularly useful when:
+///
+/// - A node is moved exclusively and you need to retain metadata
+/// - Passing node information across ownership boundaries
+/// - Caching node metadata for later scheduling decisions
+/// - Working with node references in contexts where borrowing is problematic
+///
+/// # Use Case: Exclusive Node Moves
+///
+/// The primary motivation is handling cases where a node gets moved for exclusive
+/// access, but you need to preserve metadata for scheduling or graph operations:
+///
+/// ```rust,ignore
+/// // Extract handle before exclusive move
+/// let handle = RawHandle::from(&my_node);
+///
+/// // Node gets moved exclusively somewhere else
+/// exclusive_processor.consume_node(my_node);
+///
+/// // Can still use metadata for scheduling
+/// scheduler.schedule(handle.index(), handle.depth());
+/// ```
+///
+/// # Characteristics
+///
+/// - **Lightweight**: Only stores `NodeIndex` and depth, no heap allocations
+/// - **Copy-friendly**: Implements `Clone` and `Debug` for easy manipulation
+/// - **No Epochs**: Returns 0 for `mut_epoch()` since raw handles don't track mutations
+/// - **Immutable**: Represents a snapshot of node metadata at creation time
+#[derive(Debug, Clone)]
+pub struct RawHandle {
+    index: NodeIndex,
+    depth: u32,
+}
+
+impl RawHandle {
+    const fn new(index: NodeIndex, depth: u32) -> Self {
+        Self { index, depth }
+    }
+
+    pub const fn index(&self) -> NodeIndex {
+        self.index
+    }
+
+    pub const fn depth(&self) -> u32 {
+        self.depth
+    }
+}
+
+impl NodeHandle for RawHandle {
+    fn index(&self) -> NodeIndex {
+        self.index
+    }
+
+    fn depth(&self) -> u32 {
+        self.depth
+    }
+
+    fn mut_epoch(&self) -> usize {
+        unimplemented!("RawHandle doesn't track mutations")
+    }
+}
 
 /// A smart pointer to a node in the computation graph.
 ///
@@ -62,6 +154,20 @@ type OnDrop<T> = Box<dyn FnMut(&mut T) + 'static>;
 /// runtime. The runtime ensures exclusive access during node execution.
 pub struct Node<T: 'static>(Rc<UnsafeCell<NodeInner<T>>>);
 
+impl<T: 'static> NodeHandle for Node<T> {
+    fn index(&self) -> NodeIndex {
+        self.index()
+    }
+
+    fn depth(&self) -> u32 {
+        self.depth()
+    }
+
+    fn mut_epoch(&self) -> usize {
+        self.mut_epoch()
+    }
+}
+
 impl<T: 'static> Node<T> {
     /// Creates an uninitialized node with default graph metadata.
     ///
@@ -96,6 +202,11 @@ impl<T: 'static> Node<T> {
         }
     }
 
+    #[inline(always)]
+    pub fn raw_handle(&self) -> RawHandle {
+        RawHandle::new(self.index(), self.depth())
+    }
+
     /// Returns the optional debug name of this node.
     #[inline(always)]
     pub fn name(&self) -> Option<&str> {
@@ -110,6 +221,15 @@ impl<T: 'static> Node<T> {
     #[inline(always)]
     pub fn downgrade(&self) -> WeakNode<T> {
         WeakNode(Rc::downgrade(&self.0))
+    }
+
+    #[inline(always)]
+    pub fn upgrade(self) -> Option<ExclusiveNode<T>> {
+        if Rc::strong_count(&self.0) == 1 && Rc::weak_count(&self.0) == 1 {
+            Some(ExclusiveNode(self.0))
+        } else {
+            None
+        }
     }
 
     /// Returns the node's unique identifier within the graph.
@@ -172,6 +292,135 @@ impl<T: 'static> Clone for Node<T> {
     #[inline(always)]
     fn clone(&self) -> Self {
         Self(self.0.clone())
+    }
+}
+
+/// ExclusiveNode: Exclusive Consumption Pattern
+///
+/// ExclusiveNode enables a child node to take exclusive ownership of data from its parent,
+/// supporting single-consumer patterns where data should be consumed by exactly one
+/// downstream processor.
+///
+/// # Example Use Case: Routing and Dispatching
+///
+/// An example motivation is routing scenarios where:
+/// 1. A generic parent collects data (e.g., from a socket buffer)
+/// 2. A specialized child consumes all data exclusively to route/dispatch it
+/// 3. The parent remains generic and reusable across different routing strategies
+///
+/// ```rust,ignore
+/// // Generic data collector - reusable across different routing strategies
+/// let socket_buffer = NodeBuilder::new(SocketBuffer::new())
+///     .build(&mut executor, |buffer, ctx| {
+///         // Read from socket into generic buffer
+///         buffer.read_from_socket()?;
+///         Control::Broadcast
+///     });
+///
+/// // Exclusive consumer that routes based on message headers
+/// let message_router = ExclusiveNodeBuilder::new(MessageRouter::new())
+///     .exclusively_consumes(&socket_buffer)
+///     .build(&mut executor, |router, ctx, parent_data| {
+///         // Take exclusive ownership of all buffered data
+///         let messages = parent_data.take_all_messages();
+///
+///         for msg in messages {
+///             match msg.routing_key() {
+///                 "orders" => router.dispatch_to_order_processor(msg),
+///                 "quotes" => router.dispatch_to_quote_processor(msg),
+///                 "admin" => router.dispatch_to_admin_handler(msg),
+///                 _ => router.send_to_dead_letter(msg),
+///             }
+///         }
+///
+///         Control::Broadcast
+///     });
+/// ```
+///
+/// This pattern enables clean separation between generic data collection and specialized
+/// routing/dispatching logic while maintaining efficient data flow.
+pub struct ExclusiveNode<T: 'static>(Rc<UnsafeCell<NodeInner<T>>>);
+
+impl<T: 'static> NodeHandle for ExclusiveNode<T> {
+    fn index(&self) -> NodeIndex {
+        self.index()
+    }
+
+    fn depth(&self) -> u32 {
+        self.depth()
+    }
+
+    fn mut_epoch(&self) -> usize {
+        self.mut_epoch()
+    }
+}
+
+impl<T: Default + 'static> ExclusiveNode<T> {
+    #[inline(always)]
+    pub fn take(&self) -> T {
+        std::mem::take(&mut self.get_mut().data)
+    }
+}
+
+impl<T: 'static> ExclusiveNode<Vec<T>> {
+    #[inline(always)]
+    pub fn drain(&self) -> Drain<'_, T> {
+        self.get_mut().data.drain(..)
+    }
+}
+
+impl<T: 'static> ExclusiveNode<T> {
+    #[inline(always)]
+    pub fn downgrade(self) -> Node<T> {
+        Node(self.0)
+    }
+
+    #[inline(always)]
+    pub fn raw_handle(&self) -> RawHandle {
+        RawHandle::new(self.index(), self.depth())
+    }
+
+    /// Returns the optional debug name of this node.
+    #[inline(always)]
+    pub fn name(&self) -> Option<&str> {
+        self.get().name.as_deref()
+    }
+
+    /// Returns the node's unique identifier within the graph.
+    #[inline(always)]
+    pub fn index(&self) -> NodeIndex {
+        self.get().index
+    }
+
+    #[inline(always)]
+    pub fn depth(&self) -> u32 {
+        self.get().depth
+    }
+
+    #[inline(always)]
+    pub fn mut_epoch(&self) -> usize {
+        self.get().mut_epoch
+    }
+
+    /// Provides immutable access to the node's data.
+    ///
+    /// This is the primary way to read node data from other wsnl.
+    /// For mutations, use the mutable access provided within cycle functions.
+    #[inline(always)]
+    pub fn borrow(&self) -> &T {
+        &self.get().data
+    }
+
+    /// Internal accessor for node metadata (immutable).
+    #[inline(always)]
+    fn get(&self) -> &NodeInner<T> {
+        unsafe { &*self.0.get() }
+    }
+
+    /// Internal accessor for node metadata (mutable).
+    #[inline(always)]
+    fn get_mut(&self) -> &mut NodeInner<T> {
+        unsafe { &mut *self.0.get() }
     }
 }
 
@@ -326,7 +575,11 @@ impl<T: 'static> NodeBuilder<T> {
     /// - `parent`: The node this new node depends on
     /// - `relationship`: How this node should react to parent changes
     #[inline]
-    pub fn add_relationship<P>(mut self, parent: &Node<P>, relationship: Relationship) -> Self {
+    pub fn add_relationship<N: NodeHandle>(
+        mut self,
+        parent: &N,
+        relationship: Relationship,
+    ) -> Self {
         assert!(
             !self
                 .parents
@@ -341,9 +594,9 @@ impl<T: 'static> NodeBuilder<T> {
     /// Adds multiple dependency relationships to other wsnl with
     /// the same relationship type.
     #[inline]
-    pub fn add_many_relationships<'a, P: 'static>(
+    pub fn add_many_relationships<'a, N: NodeHandle + 'a>(
         self,
-        parents: impl IntoIterator<Item = &'a Node<P>>,
+        parents: impl IntoIterator<Item = &'a N>,
         relationship: Relationship,
     ) -> Self {
         parents
@@ -357,15 +610,15 @@ impl<T: 'static> NodeBuilder<T> {
     /// node mutates (returns `Control::Broadcast`). Use this when the
     /// child should immediately react to a parent's changes.
     #[inline]
-    pub fn triggered_by<P>(self, parent: &Node<P>) -> Self {
+    pub fn triggered_by<N: NodeHandle>(self, parent: &N) -> Self {
         self.add_relationship(parent, Relationship::Trigger)
     }
 
     /// Creates multiple `Trigger` relationships.
     #[inline]
-    pub fn triggered_by_many<'a, P: 'static>(
+    pub fn triggered_by_many<'a, N: NodeHandle + 'a>(
         self,
-        parents: impl IntoIterator<Item = &'a Node<P>>,
+        parents: impl IntoIterator<Item = &'a N>,
     ) -> Self {
         self.add_many_relationships(parents, Relationship::Trigger)
     }
@@ -377,15 +630,15 @@ impl<T: 'static> NodeBuilder<T> {
     /// to parent data but want to control when to react to changes using
     /// `ExecutionContext::has_mutated()`.
     #[inline]
-    pub fn observer_of<P>(self, parent: &Node<P>) -> Self {
+    pub fn observer_of<N: NodeHandle>(self, parent: &N) -> Self {
         self.add_relationship(parent, Relationship::Observe)
     }
 
     /// Creates multiple `Observe` relationships.
     #[inline]
-    pub fn observer_of_many<'a, P: 'static>(
+    pub fn observer_of_many<'a, N: NodeHandle + 'a>(
         self,
-        parents: impl IntoIterator<Item = &'a Node<P>>,
+        parents: impl IntoIterator<Item = &'a N>,
     ) -> Self {
         self.add_many_relationships(parents, Relationship::Observe)
     }
@@ -787,5 +1040,24 @@ impl<T: 'static> NodeBuilder<T> {
         }
 
         inner.on_drop = self.on_drop;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_exclusive_node() {
+        let mut executor = Executor::new();
+        let node = NodeBuilder::new(23).build(&mut executor, |_, _| Control::Unchanged);
+
+        let exclusive = node.upgrade();
+        assert!(exclusive.is_some());
+        let node = exclusive.unwrap().downgrade();
+
+        let _cloned = std::hint::black_box(node.clone());
+        let exclusive = node.upgrade();
+        assert!(exclusive.is_none());
     }
 }
