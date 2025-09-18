@@ -11,6 +11,7 @@ pub struct SchedulerError;
 pub struct Scheduler {
     multi_queue: Vec<VecDeque<NodeIndex>>,
     curr_depth: usize,
+    pending_events: usize,
 }
 
 impl Scheduler {
@@ -18,7 +19,12 @@ impl Scheduler {
         Self {
             multi_queue: Vec::new(),
             curr_depth: 0,
+            pending_events: 0,
         }
+    }
+
+    pub(crate) const fn has_pending_event(&self) -> bool {
+        self.pending_events > 0
     }
 
     pub(crate) fn resize(&mut self, max_depth: u32) {
@@ -50,14 +56,20 @@ impl Scheduler {
             return Err(SchedulerError);
         }
         self.multi_queue[depth as usize].push_back(node_index);
+        self.pending_events += 1;
         Ok(())
     }
 
     #[inline(always)]
     pub(crate) fn pop(&mut self) -> Option<NodeIndex> {
         // we must exhaust - see tests for an example
-        while self.curr_depth < self.multi_queue.len() {
+        while self.curr_depth < self.multi_queue.len() && self.has_pending_event() {
             if let Some(item) = self.multi_queue[self.curr_depth].pop_front() {
+                debug_assert!(
+                    self.pending_events > 0,
+                    "pending_events underflow in scheduler pop"
+                );
+                self.pending_events -= 1;
                 return Some(item);
             }
             self.curr_depth += 1;
@@ -78,14 +90,14 @@ mod tests {
         let mut scheduler = Scheduler::new();
         scheduler.resize(5);
 
-        let _ =scheduler.schedule(NodeIndex::from(0), 0);
-        let _ =scheduler.schedule(NodeIndex::from(1), 1);
-        let _ =scheduler.schedule(NodeIndex::from(2), 4);
-        let _ =scheduler.schedule(NodeIndex::from(3), 2);
-        let _ =scheduler.schedule(NodeIndex::from(4), 3);
-        let _ =scheduler.schedule(NodeIndex::from(5), 1);
-        let _ =scheduler.schedule(NodeIndex::from(6), 2);
-        let _ =scheduler.schedule(NodeIndex::from(7), 4);
+        let _ = scheduler.schedule(NodeIndex::from(0), 0);
+        let _ = scheduler.schedule(NodeIndex::from(1), 1);
+        let _ = scheduler.schedule(NodeIndex::from(2), 4);
+        let _ = scheduler.schedule(NodeIndex::from(3), 2);
+        let _ = scheduler.schedule(NodeIndex::from(4), 3);
+        let _ = scheduler.schedule(NodeIndex::from(5), 1);
+        let _ = scheduler.schedule(NodeIndex::from(6), 2);
+        let _ = scheduler.schedule(NodeIndex::from(7), 4);
 
         // rank 0
         let item = scheduler.pop();
@@ -178,8 +190,8 @@ mod tests {
         let mut scheduler = Scheduler::new();
         scheduler.resize(3);
 
-        let _ =scheduler.schedule(NodeIndex::from(0), 0);
-        let _ =scheduler.schedule(NodeIndex::from(2), 2);
+        let _ = scheduler.schedule(NodeIndex::from(0), 0);
+        let _ = scheduler.schedule(NodeIndex::from(2), 2);
         // Node A never scheduled (observe)
 
         let item = scheduler.pop();

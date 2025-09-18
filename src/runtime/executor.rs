@@ -446,7 +446,7 @@ impl Executor {
             self.epoch,
         );
 
-        // Process wsnl in the graph
+        // Process nodes in the graph
         while let Some(node_idx) = unsafe { (&mut *self.scheduler.get()).pop() } {
             ctx.set_current(node_idx);
             match self.graph.cycle(&mut ctx, node_idx) {
@@ -486,7 +486,7 @@ impl Executor {
             }
         }
 
-        // Sweep all wsnl marked for cleanup
+        // Sweep all nodes marked for cleanup
         while let Some(marked_node) = self.gc.next_to_sweep() {
             self.graph.remove_node(marked_node);
         }
@@ -1092,5 +1092,22 @@ mod tests {
             .cycle(clock.trigger_time(), Some(Duration::ZERO))
             .unwrap();
         assert_eq!(executor.graph.node_count(), 1);
+    }
+
+    #[test]
+    fn test_no_timeout() {
+        let mut executor = Executor::new();
+        let mut clock = TestClock::new();
+
+        let node = NodeBuilder::new(0)
+            .on_init(|ex, _, idx| ex.yield_driver().yield_now(idx))
+            .build(&mut executor, |this, _| {
+                *this += 1;
+                Control::Broadcast
+            });
+
+        executor.cycle(clock.trigger_time(), None).unwrap();
+        assert_eq!(executor.graph.node_count(), 1);
+        std::hint::black_box(node.borrow());
     }
 }

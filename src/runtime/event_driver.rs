@@ -152,6 +152,11 @@ impl EventDriver {
         }
         self.yield_driver.poll(graph, scheduler, epoch);
         self.timer_driver.poll(graph, scheduler, now, epoch);
+        if scheduler.has_pending_event() {
+            return self
+                .io_driver
+                .poll(graph, scheduler, Some(Duration::ZERO), epoch);
+        }
         self.io_driver.poll(graph, scheduler, timeout, epoch)
     }
 }
