@@ -51,11 +51,20 @@ impl YieldDriver {
     /// using epoch-based deduplication to prevent double-scheduling.
     /// This happens during each runtime polling cycle.
     #[inline(always)]
-    pub(crate) fn poll(&mut self, graph: &mut Graph, scheduler: &mut Scheduler, epoch: usize) {
+    pub(crate) fn poll(
+        &mut self,
+        graph: &mut Graph,
+        scheduler: &mut Scheduler,
+        epoch: usize,
+    ) -> usize {
+        let mut events = 0;
         self.indices.drain(..).for_each(|idx| {
             if let Some(depth) = graph.can_schedule(idx, epoch) {
                 let _ = scheduler.schedule(idx, depth);
+                events += 1;
             }
-        })
+        });
+
+        events
     }
 }

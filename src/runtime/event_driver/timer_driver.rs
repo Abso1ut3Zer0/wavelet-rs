@@ -105,17 +105,21 @@ impl TimerDriver {
         scheduler: &mut Scheduler,
         now: Instant,
         epoch: usize,
-    ) {
+    ) -> usize {
+        let mut events = 0;
         while let Some(entry) = self.timers.first_entry() {
             if entry.key().when <= now {
                 let (_, node_idx) = entry.remove_entry();
                 if let Some(depth) = graph.can_schedule(node_idx, epoch) {
                     let _ = scheduler.schedule(node_idx, depth);
+                    events += 1;
                 }
                 continue;
             }
-            return;
+            return events;
         }
+
+        events
     }
 }
 
