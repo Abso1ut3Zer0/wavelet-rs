@@ -63,8 +63,12 @@ impl Scheduler {
     #[inline(always)]
     pub(crate) fn pop(&mut self) -> Option<NodeIndex> {
         // we must exhaust - see tests for an example
-        while self.curr_depth < self.multi_queue.len() && self.pending_events > 0 {
+        while self.curr_depth < self.multi_queue.len() && self.has_pending_event() {
             if let Some(item) = self.multi_queue[self.curr_depth].pop_front() {
+                debug_assert!(
+                    self.pending_events > 0,
+                    "pending_events underflow in scheduler pop"
+                );
                 self.pending_events -= 1;
                 return Some(item);
             }
