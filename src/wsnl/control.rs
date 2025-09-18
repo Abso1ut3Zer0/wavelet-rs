@@ -82,6 +82,82 @@ impl<K: Clone + Eq + Hash + 'static, T: 'static> Router<K, T> {
     }
 }
 
+/// Creates a router node that observes items from a source and distributes them by key.
+///
+/// This router processes batches of items by applying the routing function to each item
+/// to determine which output node should receive a copy. Items are cloned from the source,
+/// leaving the original data intact.
+///
+/// # Arguments
+/// * `executor` - The executor to create the router in
+/// * `source` - Source node containing batches of items to route
+/// * `route` - Function that extracts a routing key from each item
+///
+/// # Returns
+/// A router node that can create output nodes via `route()` method
+///
+/// # Behavior
+/// - Observes items from source using `iter()` (non-destructive)
+/// - Routes each item to appropriate output node based on key
+/// - Clones items to output nodes (source retains original data)
+/// - Automatically clears output nodes at cycle boundaries
+/// - Only schedules output nodes that receive data
+/// - Returns `Control::Unchanged` (routing is transparent)
+///
+/// # Differences from `take_route_stream_node`
+/// - **Observes** vs consumes: Source data remains available
+/// - **Clones** vs moves: Items are copied to output nodes
+/// - Use when multiple consumers need access to the same source data
+///
+/// # Examples
+/// ```rust, ignore
+/// // Route market data by symbol (non-destructive)
+/// let md_router = route_stream_node(executor, market_feed, |tick| &tick.symbol);
+/// let eurusd_feed = md_router.borrow().route(executor, "EURUSD");
+/// let gbpusd_feed = md_router.borrow().route(executor, "GBPUSD");
+///
+/// // Original market_feed still contains all data for other consumers
+/// let backup_processor = NodeBuilder::new(())
+///     .triggered_by(&market_feed)  // Can still access original data
+///     .build(executor, |_, _| Control::Unchanged);
+///
+/// // Route events by priority level
+/// let event_router = route_stream_node(executor, events, |event| event.priority);
+/// let critical_events = event_router.borrow().route(executor, Priority::Critical);
+/// let normal_events = event_router.borrow().route(executor, Priority::Normal);
+/// ```
+pub fn route_stream_node<K: Clone + Eq + Hash, T: Clone>(
+    executor: &mut Executor,
+    source: Node<Vec<T>>,
+    route: impl Fn(&T) -> K + 'static,
+) -> Node<Router<K, T>> {
+    let source = source.clone();
+    let gc = executor.garbage_collector();
+    NodeBuilder::new(Router::new(Some(source.clone())))
+        .triggered_by(&source)
+        .on_drop(move |this| {
+            this.cache.borrow().values().for_each(|(weak, _)| {
+                weak.upgrade().map(|node| gc.mark_for_sweep(node.index()));
+            });
+            this.cache.borrow_mut().clear();
+        })
+        .build(executor, move |this, ctx| {
+            source.borrow_mut().iter().for_each(|item| {
+                if let Some((node, epoch)) = this.cache.borrow_mut().get_mut(&route(&item))
+                    && let Some(node) = node.upgrade()
+                {
+                    if *epoch != ctx.epoch() {
+                        node.borrow_mut().clear();
+                        *epoch = ctx.epoch();
+                        ctx.schedule_node(&node).expect("failed to schedule node");
+                    }
+                    node.borrow_mut().push(item.to_owned());
+                }
+            });
+            Control::Unchanged
+        })
+}
+
 /// Creates a router node that consumes items from a source and distributes them by key.
 ///
 /// This router processes batches of items, applying the routing function to each item
@@ -460,6 +536,42 @@ mod tests {
     use super::*;
     use crate::prelude::*;
     use crate::testing::push_node;
+
+    #[test]
+    fn test_router() {
+        let mut runtime = TestRuntime::new();
+        let (parent, push) = push_node(runtime.executor(), Vec::new());
+        let router = route_stream_node(runtime.executor(), parent.clone(), |item| item % 2);
+        let node0 = router.borrow().route(runtime.executor(), 0);
+        let node1 = router.borrow().route(runtime.executor(), 1);
+        assert_eq!(router.borrow().cache.borrow().len(), 2);
+
+        push.push_with_cycle(&mut runtime, vec![0]);
+        println!("node0: {:?}", node0.borrow());
+        println!("node1: {:?}", node1.borrow());
+
+        assert!(runtime.executor().has_mutated(&node0));
+        assert!(!runtime.executor().has_mutated(&node1));
+        assert_eq!(node0.borrow().len(), 1);
+        assert_eq!(node1.borrow().len(), 0);
+        assert_eq!(node0.borrow()[0], 0);
+
+        push.push_with_cycle(&mut runtime, vec![2, 3, 5]);
+        println!("node0: {:?}", node0.borrow());
+        println!("node1: {:?}", node1.borrow());
+
+        assert!(runtime.executor().has_mutated(&node0));
+        assert!(runtime.executor().has_mutated(&node1));
+        assert_eq!(node0.borrow().len(), 1);
+        assert_eq!(node1.borrow().len(), 2);
+        assert_eq!(node0.borrow()[0], 2);
+        assert_eq!(node1.borrow()[0], 3);
+        assert_eq!(node1.borrow()[1], 5);
+
+        drop(node0);
+        drop(node1);
+        assert_eq!(router.borrow().cache.borrow().len(), 0);
+    }
 
     #[test]
     fn test_take_router() {
