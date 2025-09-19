@@ -150,6 +150,11 @@ impl EventDriver {
         now: Instant,
         epoch: usize,
     ) -> io::Result<()> {
+        debug_assert!(
+            (self.spin_mode && timeout.is_some() && timeout.unwrap() == Duration::ZERO)
+                || !self.spin_mode,
+            "must either have a zero timeout in spin mode, or not be in spin mode"
+        );
         {
             let mut raw_events = self.raw_events.lock();
             raw_events.drain().for_each(|node_idx| {
