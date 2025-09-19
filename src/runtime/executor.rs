@@ -253,11 +253,23 @@ pub struct Executor {
 }
 
 impl Executor {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             graph: Graph::new(),
             scheduler: UnsafeCell::new(Scheduler::new()),
-            event_driver: EventDriver::new(),
+            event_driver: EventDriver::new(false),
+            edge_buffer: Vec::with_capacity(BUFFER_CAPACITY),
+            deferred_spawns: VecDeque::new(),
+            gc: GarbageCollector::new(),
+            epoch: 0,
+        }
+    }
+
+    pub(crate) fn new_spin_mode() -> Self {
+        Self {
+            graph: Graph::new(),
+            scheduler: UnsafeCell::new(Scheduler::new()),
+            event_driver: EventDriver::new(true),
             edge_buffer: Vec::with_capacity(BUFFER_CAPACITY),
             deferred_spawns: VecDeque::new(),
             gc: GarbageCollector::new(),
@@ -647,6 +659,47 @@ mod tests {
         let now = clock.trigger_time();
         driver
             .poll(graph, scheduler, None, now.instant, epoch)
+            .unwrap();
+
+        let mut count = 0;
+        while let Some(_) = scheduler.pop() {
+            count += 1;
+        }
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn test_notifier_handling_spin_mode() {
+        let mut executor = Executor::new_spin_mode();
+        let mut clock = TestClock::new();
+
+        // Create a node that will be triggered by I/O
+        let (node, notifier) = NodeBuilder::new(0)
+            .build_with_notifier(&mut executor, |data, _ctx| {
+                *data += 1;
+                Control::Unchanged
+            })
+            .unwrap();
+
+        notifier.notify();
+
+        // Run cycle - this should pick up the event and schedule the node
+        let now = clock.trigger_time();
+        executor.cycle(now, Some(Duration::ZERO)).unwrap();
+
+        // Verify the node was called due to an I/O event
+        assert_eq!(*node.borrow(), 1);
+
+        let unknown_notifier = executor.register_notifier(NodeIndex::from(100));
+        unknown_notifier.notify();
+
+        let driver = &mut executor.event_driver;
+        let graph = &mut executor.graph;
+        let scheduler = unsafe { &mut *executor.scheduler.get() };
+        let epoch = executor.epoch + 1;
+        let now = clock.trigger_time();
+        driver
+            .poll(graph, scheduler, Some(Duration::ZERO), now.instant, epoch)
             .unwrap();
 
         let mut count = 0;

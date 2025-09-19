@@ -131,7 +131,7 @@ impl NodeHandle for RawHandle {
 ///   change tracking and can break incremental computation guarantees
 ///
 /// # Example
-/// ```rust
+/// ```rust, ignore
 /// use wavelet::prelude::{Node, NodeBuilder, Control, Executor};
 ///
 /// let mut executor = Executor::new();
@@ -431,7 +431,7 @@ impl<T: 'static> ExclusiveNode<T> {
 /// or when you need a handle that can detect if a node has been cleaned up.
 ///
 /// # Example
-/// ```rust
+/// ```rust, ignore
 /// use wavelet::prelude::{Node, NodeBuilder, WeakNode, Executor, Control};
 ///
 /// let mut executor = Executor::new();

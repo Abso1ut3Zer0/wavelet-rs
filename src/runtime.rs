@@ -275,12 +275,38 @@ impl<C: Clock, M: ExecutionMode> RuntimeBuilder<C, M> {
         self.mode = Some(mode);
         self
     }
+}
 
-    pub fn build(self) -> Result<Runtime<C, M>, RuntimeBuilderError> {
+impl<C: Clock> RuntimeBuilder<C, Block> {
+    pub fn build(self) -> Result<Runtime<C, Block>, RuntimeBuilderError> {
         let clock = self.clock.ok_or(RuntimeBuilderError::NoClock)?;
         let mode = self.mode.ok_or(RuntimeBuilderError::NoExecutionMode)?;
         Ok(Runtime {
             executor: Executor::new(),
+            clock,
+            mode,
+        })
+    }
+}
+
+impl<C: Clock> RuntimeBuilder<C, Sleep> {
+    pub fn build(self) -> Result<Runtime<C, Sleep>, RuntimeBuilderError> {
+        let clock = self.clock.ok_or(RuntimeBuilderError::NoClock)?;
+        let mode = self.mode.ok_or(RuntimeBuilderError::NoExecutionMode)?;
+        Ok(Runtime {
+            executor: Executor::new(),
+            clock,
+            mode,
+        })
+    }
+}
+
+impl<C: Clock> RuntimeBuilder<C, Spin> {
+    pub fn build(self) -> Result<Runtime<C, Spin>, RuntimeBuilderError> {
+        let clock = self.clock.ok_or(RuntimeBuilderError::NoClock)?;
+        let mode = self.mode.ok_or(RuntimeBuilderError::NoExecutionMode)?;
+        Ok(Runtime {
+            executor: Executor::new_spin_mode(),
             clock,
             mode,
         })
