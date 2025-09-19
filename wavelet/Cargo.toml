@@ -1,10 +1,26 @@
 [package]
 name = "wavelet"
-version = "0.2.5"
+version = "0.2.6"
 edition = "2024"
 description = "High-performance graph-based stream processing runtime"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/Abso1ut3Zer0/wavelet-rs"
+rust-version = "1.89.0"
+categories = [
+    "asynchronous",
+    "concurrency",
+    "data-structures",
+    "algorithms",
+    "simulation"
+]
+exclude = [
+    ".github/",
+    ".idea/",
+    ".editorconfig",
+    ".gitignore",
+    "wavelet.png",
+    "CONTRIBUTING.md",
+]
 
 [dependencies]
 ahash = "0.8.12"
