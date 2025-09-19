@@ -1,11 +1,12 @@
 [package]
 name = "wavelet"
-version = "0.2.6"
+version = "0.2.7"
 edition = "2024"
 description = "High-performance graph-based stream processing runtime"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/Abso1ut3Zer0/wavelet-rs"
 rust-version = "1.89.0"
+readme = "README.md"
 categories = [
     "asynchronous",
     "concurrency",
