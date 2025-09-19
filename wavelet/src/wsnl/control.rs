@@ -142,16 +142,16 @@ pub fn route_stream_node<K: Clone + Eq + Hash, T: Clone>(
             this.cache.borrow_mut().clear();
         })
         .build(executor, move |this, ctx| {
-            source.borrow_mut().iter().for_each(|item| {
+            source.borrow().iter().for_each(|item| {
                 if let Some((node, epoch)) = this.cache.borrow_mut().get_mut(&route(&item))
                     && let Some(node) = node.upgrade()
                 {
                     if *epoch != ctx.epoch() {
-                        node.borrow_mut().clear();
+                        unsafe { node.get_mut() }.clear();
                         *epoch = ctx.epoch();
                         ctx.schedule_node(&node).expect("failed to schedule node");
                     }
-                    node.borrow_mut().push(item.to_owned());
+                    unsafe { node.get_mut() }.push(item.to_owned());
                 }
             });
             Control::Unchanged
@@ -205,16 +205,16 @@ pub fn take_route_stream_node<K: Clone + Eq + Hash, T>(
             this.cache.borrow_mut().clear();
         })
         .build(executor, move |this, ctx| {
-            source.drain().for_each(|item| {
+            source.borrow_mut().drain(..).for_each(|item| {
                 if let Some((node, epoch)) = this.cache.borrow_mut().get_mut(&route(&item))
                     && let Some(node) = node.upgrade()
                 {
                     if *epoch != ctx.epoch() {
-                        node.borrow_mut().clear();
+                        unsafe { node.get_mut() }.clear();
                         *epoch = ctx.epoch();
                         ctx.schedule_node(&node).expect("failed to schedule node");
                     }
-                    node.borrow_mut().push(item);
+                    unsafe { node.get_mut() }.push(item);
                 }
             });
             Control::Unchanged
@@ -272,11 +272,11 @@ pub fn channel_route_stream_node<K: Clone + Eq + Hash, T>(
                             && let Some(node) = node.upgrade()
                         {
                             if *epoch != ctx.epoch() {
-                                node.borrow_mut().clear();
+                                unsafe { node.get_mut() }.clear();
                                 *epoch = ctx.epoch();
                                 ctx.schedule_node(&node).expect("failed to schedule node");
                             }
-                            node.borrow_mut().push(item);
+                            unsafe { node.get_mut() }.push(item);
                         }
                     }
                     Err(TryReceiveError::Empty) => break,
@@ -389,9 +389,9 @@ pub fn take_switch_stream_node<T>(
                 this.clear();
                 use_primary = *switch.borrow();
                 if use_primary {
-                    this.extend(primary.drain());
+                    this.extend(primary.borrow_mut().drain(..));
                 } else {
-                    this.extend(secondary.drain());
+                    this.extend(secondary.borrow_mut().drain(..));
                 }
 
                 return Control::from(!this.is_empty());
@@ -399,11 +399,11 @@ pub fn take_switch_stream_node<T>(
 
             if use_primary && ctx.has_mutated(&primary) {
                 this.clear();
-                this.extend(primary.drain());
+                this.extend(primary.borrow_mut().drain(..));
                 return Control::from(!this.is_empty());
             } else if !use_primary && ctx.has_mutated(&secondary) {
                 this.clear();
-                this.extend(secondary.drain());
+                this.extend(secondary.borrow_mut().drain(..));
                 return Control::from(!this.is_empty());
             }
 
@@ -501,8 +501,6 @@ pub fn take_switch_node<T: Default>(
     secondary: ExclusiveNode<T>,
     switch: Node<bool>,
 ) -> Node<T> {
-    let primary = primary.downgrade();
-    let secondary = secondary.downgrade();
     let mut use_primary = *switch.borrow();
     NodeBuilder::new(T::default())
         .triggered_by(&primary)

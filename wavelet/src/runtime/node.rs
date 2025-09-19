@@ -10,7 +10,6 @@ use std::cell::UnsafeCell;
 use std::collections::HashSet;
 use std::io;
 use std::rc::{Rc, Weak};
-use std::vec::Drain;
 
 type OnDrop<T> = Box<dyn FnMut(&mut T) + 'static>;
 
@@ -210,7 +209,7 @@ impl<T: 'static> Node<T> {
     /// Returns the optional debug name of this node.
     #[inline(always)]
     pub fn name(&self) -> Option<&str> {
-        self.get().name.as_deref()
+        unsafe { self.get_inner().name.as_deref() }
     }
 
     /// Creates a weak reference to this node that doesn't affect its lifecycle.
@@ -235,7 +234,7 @@ impl<T: 'static> Node<T> {
     /// Returns the node's unique identifier within the graph.
     #[inline(always)]
     pub fn index(&self) -> NodeIndex {
-        self.get().index
+        unsafe { self.get_inner().index }
     }
 
     /// Provides immutable access to the node's data.
@@ -244,7 +243,7 @@ impl<T: 'static> Node<T> {
     /// For mutations, use the mutable access provided within cycle functions.
     #[inline(always)]
     pub fn borrow(&self) -> &T {
-        &self.get().data
+        unsafe { &self.get_inner().data }
     }
 
     /// Provides mutable access to the node's data (runtime internal only).
@@ -252,39 +251,57 @@ impl<T: 'static> Node<T> {
     /// Only used by the runtime during node execution to provide controlled
     /// mutation access within cycle functions.
     #[inline(always)]
-    pub(crate) fn borrow_mut(&self) -> &mut T {
-        &mut self.get_mut().data
+    fn borrow_mut(&self) -> &mut T {
+        unsafe { &mut self.get_inner_mut().data }
+    }
+
+    /// Provides unsafe immutable accessor to
+    /// node's wrapped data
+    pub unsafe fn get(&self) -> &T {
+        unsafe { &self.get_inner().data }
+    }
+
+    /// Provides unsafe mutable accessor to
+    /// node's wrapped data
+    pub unsafe fn get_mut(&self) -> &mut T {
+        unsafe { &mut self.get_inner_mut().data }
     }
 
     /// Internal accessor for node metadata (immutable).
+    ///
+    /// Public, but labeled as unsafe.
     #[inline(always)]
-    fn get(&self) -> &NodeInner<T> {
+    unsafe fn get_inner(&self) -> &NodeInner<T> {
         unsafe { &*self.0.get() }
     }
 
     /// Internal accessor for node metadata (mutable).
+    ///
+    /// Public, but labeled as unsafe.
     #[inline(always)]
-    fn get_mut(&self) -> &mut NodeInner<T> {
+    unsafe fn get_inner_mut(&self) -> &mut NodeInner<T> {
         unsafe { &mut *self.0.get() }
     }
 
     /// Returns the node's depth level in the dependency graph (runtime internal).
     #[inline(always)]
-    pub(crate) fn depth(&self) -> u32 {
-        self.get().depth
+    pub fn depth(&self) -> u32 {
+        unsafe { self.get_inner().depth }
     }
 
     /// Returns the epoch when this node last mutated (runtime internal).
     #[inline(always)]
-    pub(crate) fn mut_epoch(&self) -> usize {
-        self.get().mut_epoch
+    pub fn mut_epoch(&self) -> usize {
+        unsafe { self.get_inner().mut_epoch }
     }
 
     /// Internal method to set the epoch if the node
     /// has mutated.
     #[inline(always)]
     fn set_mut_epoch(&mut self, epoch: usize) {
-        self.get_mut().mut_epoch = epoch;
+        unsafe {
+            self.get_inner_mut().mut_epoch = epoch;
+        }
     }
 }
 
@@ -355,20 +372,6 @@ impl<T: 'static> NodeHandle for ExclusiveNode<T> {
     }
 }
 
-impl<T: Default + 'static> ExclusiveNode<T> {
-    #[inline(always)]
-    pub fn take(&self) -> T {
-        std::mem::take(&mut self.get_mut().data)
-    }
-}
-
-impl<T: 'static> ExclusiveNode<Vec<T>> {
-    #[inline(always)]
-    pub fn drain(&self) -> Drain<'_, T> {
-        self.get_mut().data.drain(..)
-    }
-}
-
 impl<T: 'static> ExclusiveNode<T> {
     #[inline(always)]
     pub fn downgrade(self) -> Node<T> {
@@ -383,23 +386,23 @@ impl<T: 'static> ExclusiveNode<T> {
     /// Returns the optional debug name of this node.
     #[inline(always)]
     pub fn name(&self) -> Option<&str> {
-        self.get().name.as_deref()
+        unsafe { self.get_inner().name.as_deref() }
     }
 
     /// Returns the node's unique identifier within the graph.
     #[inline(always)]
     pub fn index(&self) -> NodeIndex {
-        self.get().index
+        unsafe { self.get_inner().index }
     }
 
     #[inline(always)]
     pub fn depth(&self) -> u32 {
-        self.get().depth
+        unsafe { self.get_inner().depth }
     }
 
     #[inline(always)]
     pub fn mut_epoch(&self) -> usize {
-        self.get().mut_epoch
+        unsafe { self.get_inner().mut_epoch }
     }
 
     /// Provides immutable access to the node's data.
@@ -408,18 +411,39 @@ impl<T: 'static> ExclusiveNode<T> {
     /// For mutations, use the mutable access provided within cycle functions.
     #[inline(always)]
     pub fn borrow(&self) -> &T {
-        &self.get().data
+        unsafe { &self.get_inner().data }
+    }
+
+    /// Provides mutable access to the node's data.
+    ///
+    /// This is safe, since we enforce that at this
+    /// point there is exclusive access to the node.
+    #[inline(always)]
+    pub fn borrow_mut(&self) -> &mut T {
+        unsafe { &mut self.get_inner_mut().data }
+    }
+
+    /// Provides unsafe immutable accessor to
+    /// node's wrapped data
+    pub unsafe fn get(&self) -> &T {
+        unsafe { &self.get_inner().data }
+    }
+
+    /// Provides unsafe mutable accessor to
+    /// node's wrapped data
+    pub unsafe fn get_mut(&self) -> &mut T {
+        unsafe { &mut self.get_inner_mut().data }
     }
 
     /// Internal accessor for node metadata (immutable).
     #[inline(always)]
-    fn get(&self) -> &NodeInner<T> {
+    unsafe fn get_inner(&self) -> &NodeInner<T> {
         unsafe { &*self.0.get() }
     }
 
     /// Internal accessor for node metadata (mutable).
     #[inline(always)]
-    fn get_mut(&self) -> &mut NodeInner<T> {
+    unsafe fn get_inner_mut(&self) -> &mut NodeInner<T> {
         unsafe { &mut *self.0.get() }
     }
 }
@@ -778,7 +802,7 @@ impl<T: 'static> NodeBuilder<T> {
             };
 
             let idx = executor.graph().add_node(NodeContext::new(cycle_fn, depth));
-            let inner = node.get_mut();
+            let inner = unsafe { node.get_inner_mut() };
             inner.index = idx;
             inner.depth = depth;
 
@@ -788,7 +812,7 @@ impl<T: 'static> NodeBuilder<T> {
 
             executor.scheduler().enable_depth(depth);
             if let Some(mut on_init) = self.on_init {
-                (on_init)(executor, &mut node.get_mut().data, idx)
+                (on_init)(executor, &mut unsafe { node.get_inner_mut() }.data, idx)
             }
 
             inner.on_drop = self.on_drop;
@@ -950,7 +974,7 @@ impl<T: 'static> NodeBuilder<T> {
             };
 
             let idx = executor.graph().add_node(NodeContext::new(cycle_fn, depth));
-            let inner = node.get_mut();
+            let inner = unsafe { node.get_inner_mut() };
             inner.index = idx;
             inner.depth = depth;
 
@@ -960,7 +984,7 @@ impl<T: 'static> NodeBuilder<T> {
 
             executor.scheduler().enable_depth(depth);
             if let Some(mut on_init) = self.on_init {
-                (on_init)(executor, &mut node.get_mut().data, idx)
+                (on_init)(executor, &mut unsafe { node.get_inner_mut() }.data, idx)
             }
 
             inner.on_drop = self.on_drop;
@@ -1026,7 +1050,7 @@ impl<T: 'static> NodeBuilder<T> {
         };
 
         let idx = executor.graph().add_node(NodeContext::new(cycle_fn, depth));
-        let inner = node.get_mut();
+        let inner = unsafe { node.get_inner_mut() };
         inner.index = idx;
         inner.depth = depth;
 
@@ -1036,7 +1060,7 @@ impl<T: 'static> NodeBuilder<T> {
 
         executor.scheduler().enable_depth(depth);
         if let Some(mut on_init) = self.on_init {
-            (on_init)(executor, &mut node.get_mut().data, idx)
+            (on_init)(executor, &mut unsafe { node.get_inner_mut() }.data, idx)
         }
 
         inner.on_drop = self.on_drop;
