@@ -144,7 +144,7 @@ pub fn route_stream_node<K: Clone + Eq + Hash, T: Clone>(
         .build(executor, move |this, ctx| {
             source.borrow().iter().for_each(|item| {
                 if let Some((node, epoch)) = this.cache.borrow_mut().get_mut(&route(&item))
-                    && let Some(node) = node.upgrade()
+                    && let Some(mut node) = node.upgrade()
                 {
                     if *epoch != ctx.epoch() {
                         unsafe { node.get_mut() }.clear();
@@ -192,7 +192,7 @@ pub fn route_stream_node<K: Clone + Eq + Hash, T: Clone>(
 /// ```
 pub fn take_route_stream_node<K: Clone + Eq + Hash, T>(
     executor: &mut Executor,
-    source: ExclusiveNode<Vec<T>>,
+    mut source: ExclusiveNode<Vec<T>>,
     route: impl Fn(&T) -> K + 'static,
 ) -> Node<Router<K, T>> {
     let gc = executor.garbage_collector();
@@ -207,7 +207,7 @@ pub fn take_route_stream_node<K: Clone + Eq + Hash, T>(
         .build(executor, move |this, ctx| {
             source.borrow_mut().drain(..).for_each(|item| {
                 if let Some((node, epoch)) = this.cache.borrow_mut().get_mut(&route(&item))
-                    && let Some(node) = node.upgrade()
+                    && let Some(mut node) = node.upgrade()
                 {
                     if *epoch != ctx.epoch() {
                         unsafe { node.get_mut() }.clear();
@@ -269,7 +269,7 @@ pub fn channel_route_stream_node<K: Clone + Eq + Hash, T>(
                 match rx.try_receive() {
                     Ok(item) => {
                         if let Some((node, epoch)) = this.cache.borrow_mut().get_mut(&route(&item))
-                            && let Some(node) = node.upgrade()
+                            && let Some(mut node) = node.upgrade()
                         {
                             if *epoch != ctx.epoch() {
                                 unsafe { node.get_mut() }.clear();
@@ -375,8 +375,8 @@ pub fn switch_stream_node<T: Clone>(
 /// - Other behaviors same as `switch_stream_node`
 pub fn take_switch_stream_node<T>(
     executor: &mut Executor,
-    primary: ExclusiveNode<Vec<T>>,
-    secondary: ExclusiveNode<Vec<T>>,
+    mut primary: ExclusiveNode<Vec<T>>,
+    mut secondary: ExclusiveNode<Vec<T>>,
     switch: Node<bool>,
 ) -> Node<Vec<T>> {
     let mut use_primary = *switch.borrow();
@@ -497,8 +497,8 @@ pub fn switch_node<T: Clone>(
 /// - Starts with `T::default()` initial value
 pub fn take_switch_node<T: Default>(
     executor: &mut Executor,
-    primary: ExclusiveNode<T>,
-    secondary: ExclusiveNode<T>,
+    mut primary: ExclusiveNode<T>,
+    mut secondary: ExclusiveNode<T>,
     switch: Node<bool>,
 ) -> Node<T> {
     let mut use_primary = *switch.borrow();

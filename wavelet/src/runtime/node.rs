@@ -263,7 +263,7 @@ impl<T: 'static> Node<T> {
 
     /// Provides unsafe mutable accessor to
     /// node's wrapped data
-    pub unsafe fn get_mut(&self) -> &mut T {
+    pub unsafe fn get_mut(&mut self) -> &mut T {
         unsafe { &mut self.get_inner_mut().data }
     }
 
@@ -419,7 +419,7 @@ impl<T: 'static> ExclusiveNode<T> {
     /// This is safe, since we enforce that at this
     /// point there is exclusive access to the node.
     #[inline(always)]
-    pub fn borrow_mut(&self) -> &mut T {
+    pub fn borrow_mut(&mut self) -> &mut T {
         unsafe { &mut self.get_inner_mut().data }
     }
 
@@ -431,7 +431,7 @@ impl<T: 'static> ExclusiveNode<T> {
 
     /// Provides unsafe mutable accessor to
     /// node's wrapped data
-    pub unsafe fn get_mut(&self) -> &mut T {
+    pub unsafe fn get_mut(&mut self) -> &mut T {
         unsafe { &mut self.get_inner_mut().data }
     }
 
