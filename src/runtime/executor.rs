@@ -253,11 +253,23 @@ pub struct Executor {
 }
 
 impl Executor {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             graph: Graph::new(),
             scheduler: UnsafeCell::new(Scheduler::new()),
-            event_driver: EventDriver::new(),
+            event_driver: EventDriver::new(false),
+            edge_buffer: Vec::with_capacity(BUFFER_CAPACITY),
+            deferred_spawns: VecDeque::new(),
+            gc: GarbageCollector::new(),
+            epoch: 0,
+        }
+    }
+
+    pub(crate) fn new_spin_mode() -> Self {
+        Self {
+            graph: Graph::new(),
+            scheduler: UnsafeCell::new(Scheduler::new()),
+            event_driver: EventDriver::new(true),
             edge_buffer: Vec::with_capacity(BUFFER_CAPACITY),
             deferred_spawns: VecDeque::new(),
             gc: GarbageCollector::new(),

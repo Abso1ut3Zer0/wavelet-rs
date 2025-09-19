@@ -80,21 +80,25 @@ pub struct EventDriver {
 
     /// Tracks deduplicated raw events that have been received
     raw_events: Arc<spin::Mutex<HashSet<NodeIndex>>>,
+
+    /// Indicates whether we are using the Spin executrion mode
+    spin_mode: bool,
 }
 
 impl EventDriver {
     /// Creates a new event driver with default I/O capacity.
-    pub(crate) fn new() -> Self {
-        Self::with_capacity(IO_CAPACITY)
+    pub(crate) fn new(spin_mode: bool) -> Self {
+        Self::with_capacity(spin_mode, IO_CAPACITY)
     }
 
     /// Creates a new event driver with the specified I/O event capacity.
-    pub(crate) fn with_capacity(capacity: usize) -> Self {
+    pub(crate) fn with_capacity(spin_mode: bool, capacity: usize) -> Self {
         Self {
             io_driver: IoDriver::with_capacity(capacity),
             timer_driver: TimerDriver::new(),
             yield_driver: YieldDriver::new(),
             raw_events: Arc::new(spin::Mutex::new(HashSet::with_capacity(EVENT_CAPACITY))),
+            spin_mode,
         }
     }
 
@@ -118,7 +122,11 @@ impl EventDriver {
     pub fn register_notifier(&self, node_index: NodeIndex) -> Notifier {
         Notifier::new(
             self.raw_events.clone(),
-            Some(self.io_driver.waker().clone()),
+            if self.spin_mode {
+                None
+            } else {
+                Some(self.io_driver.waker().clone())
+            },
             node_index,
         )
     }
