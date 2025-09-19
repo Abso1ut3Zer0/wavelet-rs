@@ -2,11 +2,14 @@
 <module type="EMPTY_MODULE" version="4">
   <component name="NewModuleRootManager">
     <content url="file://$MODULE_DIR$">
-      <sourceFolder url="file://$MODULE_DIR$/src" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/wavelet-rs/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/example/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/wavelet-std/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/wavelet/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/wavelet/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/wavelet/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
+      <excludeFolder url="file://$MODULE_DIR$/wavelet/target" />
     </content>
     <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />

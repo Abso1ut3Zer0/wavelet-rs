@@ -1,0 +1,32 @@
+[package]
+name = "wavelet"
+version = "0.2.5"
+edition = "2024"
+description = "High-performance graph-based stream processing runtime"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/Abso1ut3Zer0/wavelet-rs"
+
+[dependencies]
+ahash = "0.8.12"
+crossbeam-queue = "0.3.12"
+crossbeam-utils = "0.8.21"
+enum-as-inner = "0.6.1"
+mio = { version = "1.0.4", features = ["os-poll", "net"] }
+petgraph = "0.8.2"
+slab = "0.4.11"
+spin = "0.10.0"
+thiserror = "2.0.16"
+time = "0.3.42"
+
+[features]
+default = ["runtime"]
+runtime = []
+factories = ["runtime"]
+testing = ["runtime"]
+channel = ["runtime"]
+wsnl = ["runtime"]
+unstable = ["runtime"]
+full = ["runtime", "factories", "testing", "channel", "wsnl"]
+
+[package.metadata.docs.rs]
+all-features = true

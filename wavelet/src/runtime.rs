@@ -181,7 +181,11 @@ const MINIMUM_TIMER_PRECISION: std::time::Duration = std::time::Duration::from_m
 /// Defines how the runtime should behave when no wsnl are ready for execution.
 /// Different execution modes provide different trade-offs between CPU usage,
 /// latency, and power consumption.
-pub trait ExecutionMode {}
+pub trait ExecutionMode {
+    fn is_spin(&self) -> bool {
+        false
+    }
+}
 
 /// Busy-wait execution mode that continuously polls without yielding CPU.
 ///
@@ -204,7 +208,11 @@ pub struct Sleep(std::time::Duration);
 /// or timers expire. Higher latency but minimal CPU usage when idle.
 /// Best for background processing or low-frequency event handling.
 pub struct Block;
-impl ExecutionMode for Spin {}
+impl ExecutionMode for Spin {
+    fn is_spin(&self) -> bool {
+        true
+    }
+}
 impl ExecutionMode for Sleep {}
 impl ExecutionMode for Block {}
 
@@ -275,38 +283,17 @@ impl<C: Clock, M: ExecutionMode> RuntimeBuilder<C, M> {
         self.mode = Some(mode);
         self
     }
-}
 
-impl<C: Clock> RuntimeBuilder<C, Block> {
-    pub fn build(self) -> Result<Runtime<C, Block>, RuntimeBuilderError> {
+    pub fn build(self) -> Result<Runtime<C, M>, RuntimeBuilderError> {
         let clock = self.clock.ok_or(RuntimeBuilderError::NoClock)?;
         let mode = self.mode.ok_or(RuntimeBuilderError::NoExecutionMode)?;
+        let executor = if mode.is_spin() {
+            Executor::new_spin_mode()
+        } else {
+            Executor::new()
+        };
         Ok(Runtime {
-            executor: Executor::new(),
-            clock,
-            mode,
-        })
-    }
-}
-
-impl<C: Clock> RuntimeBuilder<C, Sleep> {
-    pub fn build(self) -> Result<Runtime<C, Sleep>, RuntimeBuilderError> {
-        let clock = self.clock.ok_or(RuntimeBuilderError::NoClock)?;
-        let mode = self.mode.ok_or(RuntimeBuilderError::NoExecutionMode)?;
-        Ok(Runtime {
-            executor: Executor::new(),
-            clock,
-            mode,
-        })
-    }
-}
-
-impl<C: Clock> RuntimeBuilder<C, Spin> {
-    pub fn build(self) -> Result<Runtime<C, Spin>, RuntimeBuilderError> {
-        let clock = self.clock.ok_or(RuntimeBuilderError::NoClock)?;
-        let mode = self.mode.ok_or(RuntimeBuilderError::NoExecutionMode)?;
-        Ok(Runtime {
-            executor: Executor::new_spin_mode(),
+            executor,
             clock,
             mode,
         })
