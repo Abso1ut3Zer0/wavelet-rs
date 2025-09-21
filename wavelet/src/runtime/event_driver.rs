@@ -12,8 +12,9 @@ use ahash::{HashSet, HashSetExt};
 use petgraph::prelude::NodeIndex;
 use std::io;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
+const MINIMUM_TIMER_PRECISION: std::time::Duration = std::time::Duration::from_millis(1);
 const IO_CAPACITY: usize = 1024;
 const EVENT_CAPACITY: usize = 1024;
 
@@ -24,7 +25,7 @@ const EVENT_CAPACITY: usize = 1024;
 /// libraries, user input, or cross-thread communication.
 pub struct Notifier {
     raw_events: Arc<spin::Mutex<HashSet<NodeIndex>>>,
-    waker: Option<Arc<mio::Waker>>,
+    waker: Arc<mio::Waker>,
     node_index: NodeIndex,
 }
 
@@ -38,7 +39,7 @@ impl Notifier {
     /// Creates a new notifier handle (internal use only).
     const fn new(
         raw_events: Arc<spin::Mutex<HashSet<NodeIndex>>>,
-        waker: Option<Arc<mio::Waker>>,
+        waker: Arc<mio::Waker>,
         node_index: NodeIndex,
     ) -> Self {
         Self {
@@ -55,7 +56,7 @@ impl Notifier {
     #[inline(always)]
     pub fn notify(&self) {
         self.raw_events.lock().insert(self.node_index);
-        self.waker.as_ref().map(|waker| waker.wake().ok());
+        self.waker.wake().ok();
     }
 }
 
@@ -81,25 +82,21 @@ pub struct EventDriver {
 
     /// Tracks deduplicated raw events that have been received
     raw_events: Arc<spin::Mutex<HashSet<NodeIndex>>>,
-
-    /// Indicates whether we are using the Spin executrion mode
-    spin_mode: bool,
 }
 
 impl EventDriver {
     /// Creates a new event driver with default I/O capacity.
-    pub(crate) fn new(spin_mode: bool) -> Self {
-        Self::with_capacity(spin_mode, IO_CAPACITY)
+    pub(crate) fn new() -> Self {
+        Self::with_capacity(IO_CAPACITY)
     }
 
     /// Creates a new event driver with the specified I/O event capacity.
-    pub(crate) fn with_capacity(spin_mode: bool, capacity: usize) -> Self {
+    pub(crate) fn with_capacity(capacity: usize) -> Self {
         Self {
             io_driver: IoDriver::with_capacity(capacity),
             timer_driver: TimerDriver::new(),
             yield_driver: YieldDriver::new(),
             raw_events: Arc::new(spin::Mutex::new(HashSet::with_capacity(EVENT_CAPACITY))),
-            spin_mode,
         }
     }
 
@@ -121,15 +118,7 @@ impl EventDriver {
     /// Creates a new `Notifier` to inform the event driver of a raw event.
     #[inline(always)]
     pub fn register_notifier(&self, node_index: NodeIndex) -> Notifier {
-        Notifier::new(
-            self.raw_events.clone(),
-            if self.spin_mode {
-                None
-            } else {
-                Some(self.io_driver.waker().clone())
-            },
-            node_index,
-        )
+        Notifier::new(self.raw_events.clone(), self.io_driver.waker(), node_index)
     }
 
     /// Polls all event sources and schedules ready wsnl.
@@ -151,11 +140,6 @@ impl EventDriver {
         timeout: Option<Duration>,
         epoch: usize,
     ) -> io::Result<TriggerTime> {
-        debug_assert!(
-            (self.spin_mode && timeout.is_some() && timeout.unwrap() == Duration::ZERO)
-                || !self.spin_mode,
-            "must either have a zero timeout in spin mode, or not be in spin mode"
-        );
         {
             let mut raw_events = self.raw_events.lock();
             raw_events.drain().for_each(|node_idx| {
@@ -169,18 +153,37 @@ impl EventDriver {
         self.yield_driver.poll(graph, scheduler, epoch);
         self.timer_driver
             .poll(graph, scheduler, trigger_time.instant, epoch);
-        if scheduler.has_pending_event() || self.spin_mode {
+        if scheduler.has_pending_event() || timeout == Some(Duration::ZERO) {
             self.io_driver
                 .poll(graph, scheduler, Some(Duration::ZERO), epoch)?;
             return Ok(trigger_time);
         }
 
-        let timeout = self
+        let sleep_duration = self
             .timer_driver
             .next_timer()
-            .map(|instant| instant.saturating_duration_since(trigger_time.instant))
-            .min(timeout);
-        self.io_driver.poll(graph, scheduler, timeout, epoch)?;
-        Ok(clock.trigger_time())
+            .map(|instant| instant.saturating_duration_since(trigger_time.instant));
+        match (timeout, sleep_duration) {
+            (Some(timeout), Some(sleep_duration)) => {
+                let timeout = timeout.min(sleep_duration).max(MINIMUM_TIMER_PRECISION);
+                self.io_driver
+                    .poll(graph, scheduler, Some(timeout), epoch)?;
+                return Ok(clock.trigger_time());
+            }
+            (Some(timeout), None) => {
+                self.io_driver
+                    .poll(graph, scheduler, Some(timeout), epoch)?;
+                return Ok(clock.trigger_time());
+            }
+            (None, Some(sleep_duration)) => {
+                self.io_driver
+                    .poll(graph, scheduler, Some(sleep_duration), epoch)?;
+                return Ok(clock.trigger_time());
+            }
+            (None, None) => {
+                self.io_driver.poll(graph, scheduler, None, epoch)?;
+                return Ok(clock.trigger_time());
+            }
+        }
     }
 }

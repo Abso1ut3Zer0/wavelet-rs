@@ -123,6 +123,8 @@ impl TimerDriver {
 mod tests {
     use super::*;
     use crate::Control;
+    use crate::prelude::TestClock;
+    use crate::runtime::Clock;
     use crate::runtime::graph::{Graph, NodeContext};
     use crate::runtime::scheduler::Scheduler;
     use std::time::{Duration, Instant};
@@ -312,5 +314,24 @@ mod tests {
         // Should wrap around to 0
         assert_eq!(reg.id, usize::MAX);
         assert_eq!(driver.sequence, 0);
+    }
+
+    #[test]
+    fn test_next_timer_tracking() {
+        let mut driver = TimerDriver::new();
+        let mut clock = TestClock::new();
+
+        // Initially no timers
+        assert_eq!(driver.next_timer(), None);
+
+        let trigger_time = clock.trigger_time();
+        driver.register_timer(
+            NodeIndex::from(1),
+            trigger_time.instant + Duration::from_millis(500),
+        );
+
+        // Should now return the timer time
+        let expected_time = trigger_time.instant + Duration::from_millis(500);
+        assert_eq!(driver.next_timer(), Some(expected_time));
     }
 }

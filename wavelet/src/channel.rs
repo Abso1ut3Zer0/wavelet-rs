@@ -169,7 +169,7 @@ impl<T> Channel<T> {
 mod tests {
     use crate::Control;
     use crate::channel::{Receiver, TryReceiveError};
-    use crate::prelude::{Clock, Executor, TestClock};
+    use crate::prelude::{Executor, TestClock};
     use crate::runtime::NodeBuilder;
     use std::time::Duration;
 
@@ -187,9 +187,7 @@ mod tests {
             .unwrap();
 
         tx.try_send(1).unwrap();
-        executor
-            .cycle(clock.trigger_time(), Some(Duration::ZERO))
-            .unwrap();
+        executor.cycle(&mut clock, Some(Duration::ZERO)).unwrap();
         assert!(executor.has_mutated(&node));
         assert_eq!(*node.borrow(), "1");
     }
@@ -209,9 +207,7 @@ mod tests {
 
         tx.force_send(1).unwrap();
         tx.force_send(3).unwrap();
-        executor
-            .cycle(clock.trigger_time(), Some(Duration::ZERO))
-            .unwrap();
+        executor.cycle(&mut clock, Some(Duration::ZERO)).unwrap();
         assert!(executor.has_mutated(&node));
         assert_eq!(*node.borrow(), "3");
     }
@@ -230,9 +226,7 @@ mod tests {
             .unwrap();
 
         tx.blocking_send(1).unwrap();
-        executor
-            .cycle(clock.trigger_time(), Some(Duration::ZERO))
-            .unwrap();
+        executor.cycle(&mut clock, Some(Duration::ZERO)).unwrap();
         assert!(executor.has_mutated(&node));
         assert_eq!(*node.borrow(), "1");
     }
@@ -281,7 +275,7 @@ mod tests {
         // Process all messages
         for _ in 0..10 {
             executor
-                .cycle(clock.trigger_time(), Some(Duration::from_millis(1)))
+                .cycle(&mut clock, Some(Duration::from_millis(1)))
                 .unwrap();
             thread::sleep(Duration::from_millis(5));
         }
@@ -314,17 +308,13 @@ mod tests {
 
         // Send a value
         tx.try_send(42).unwrap();
-        executor
-            .cycle(clock.trigger_time(), Some(Duration::ZERO))
-            .unwrap();
+        executor.cycle(&mut clock, Some(Duration::ZERO)).unwrap();
         assert_eq!(*node.borrow(), 42);
 
         drop(tx);
 
         // Second cycle should be the sentinel value on drop
-        executor
-            .cycle(clock.trigger_time(), Some(Duration::ZERO))
-            .unwrap();
+        executor.cycle(&mut clock, Some(Duration::ZERO)).unwrap();
         assert_eq!(*node.borrow(), 999);
     }
 
@@ -367,9 +357,7 @@ mod tests {
         });
 
         while running.load(Ordering::Relaxed) {
-            executor
-                .cycle(clock.trigger_time(), Some(Duration::ZERO))
-                .unwrap();
+            executor.cycle(&mut clock, Some(Duration::ZERO)).unwrap();
             thread::sleep(Duration::from_millis(10));
         }
 
@@ -402,9 +390,7 @@ mod tests {
         drop(tx);
 
         // Should still be able to receive pending messages
-        executor
-            .cycle(clock.trigger_time(), Some(Duration::ZERO))
-            .unwrap();
+        executor.cycle(&mut clock, Some(Duration::ZERO)).unwrap();
         assert_eq!(node.borrow().len(), 10);
         assert_eq!(*node.borrow(), vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
     }
@@ -451,9 +437,7 @@ mod tests {
         // Process messages
         let mut executor = executor;
         let mut clock = clock;
-        executor
-            .cycle(clock.trigger_time(), Some(Duration::ZERO))
-            .unwrap();
+        executor.cycle(&mut clock, Some(Duration::ZERO)).unwrap();
 
         // Should have the most recent values (exact order depends on timing)
         let values = node.borrow();
@@ -501,9 +485,7 @@ mod tests {
         }
 
         // Channel should now be closed
-        executor
-            .cycle(clock.trigger_time(), Some(Duration::ZERO))
-            .unwrap();
+        executor.cycle(&mut clock, Some(Duration::ZERO)).unwrap();
         assert_eq!(*node.borrow(), true);
     }
 
@@ -525,9 +507,7 @@ mod tests {
             .unwrap();
 
         tx.blocking_send(1).unwrap();
-        executor
-            .cycle(clock.trigger_time(), Some(Duration::ZERO))
-            .unwrap();
+        executor.cycle(&mut clock, Some(Duration::ZERO)).unwrap();
         assert!(executor.has_mutated(&node));
         assert_eq!(*node.borrow(), "1");
     }

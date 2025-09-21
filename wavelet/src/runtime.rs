@@ -30,10 +30,10 @@
 //! - **Controlled mutation**: Data changes only within cycle functions
 //! - **Builder pattern**: Fluent API for configuring relationships and lifecycle
 //!
-//! ### [`Runtime<C, M>`]
+//! ### [`Runtime<C>`]
 //! Complete runtime orchestration combining:
 //! - **Clock abstraction**: Consistent time across execution cycles
-//! - **Execution modes**: Different CPU/latency trade-offs (`Spin`, `Sleep`, `Block`)
+//! - **Execution modes**: Different CPU/latency trade-offs (`Spin`, `Park`)
 //! - **Runtime loops**: Automated execution patterns for different use cases
 //!
 //! ### Event System
@@ -93,11 +93,7 @@
 //!     });
 //!
 //! // Run the graph
-//! let runtime = Runtime::builder()
-//!     .with_clock(PrecisionClock::new())
-//!     .with_mode(Sleep::new(Duration::from_millis(1)))
-//!     .build()?;
-//!
+//! let runtime = RealtimeRuntime::new(ExecutionMode::Park);
 //! runtime.run_forever();
 //! ```
 //!
@@ -169,142 +165,31 @@ pub mod node;
 mod scheduler;
 
 pub use clock::*;
+use enum_as_inner::EnumAsInner;
 pub use event_driver::*;
 pub use executor::*;
 pub use graph::*;
 pub use node::*;
 
-const MINIMUM_TIMER_PRECISION: std::time::Duration = std::time::Duration::from_millis(1);
-
-/// Marker trait for runtime execution strategies.
+/// Execution mode for the real-time runtime.
 ///
-/// Defines how the runtime should behave when no wsnl are ready for execution.
-/// Different execution modes provide different trade-offs between CPU usage,
-/// latency, and power consumption.
-pub trait ExecutionMode {
-    fn is_spin(&self) -> bool {
-        false
-    }
-}
-
-/// Busy-wait execution mode that continuously polls without yielding CPU.
+/// Spin mode never parks the thread. Trades off
+/// high cpu usage for the lowest possible latency.
 ///
-/// Provides the lowest possible latency at the cost of high CPU usage.
-/// Best for latency-critical applications where CPU resources are dedicated.
-pub struct Spin;
-
-/// Sleep-based execution mode that yields CPU for a maximum duration.
-///
-/// Balances latency and CPU usage by sleeping for the shorter of:
-/// - The configured maximum sleep duration
-/// - Time until the next timer expires
-///
-/// Good for most applications that need reasonable latency without burning CPU.
-pub struct Sleep(std::time::Duration);
-
-/// Blocking execution mode that waits indefinitely for events.
-///
-/// Provides the most CPU-efficient operation by blocking until events occur
-/// or timers expire. Higher latency but minimal CPU usage when idle.
-/// Best for background processing or low-frequency event handling.
-pub struct Block;
-impl ExecutionMode for Spin {
-    fn is_spin(&self) -> bool {
-        true
-    }
-}
-impl ExecutionMode for Sleep {}
-impl ExecutionMode for Block {}
-
-impl Sleep {
-    /// Creates a new Sleep execution mode with the specified maximum duration.
-    ///
-    /// The duration must be at least 1ms due to normal OS sleep limitations.
-    pub fn new(duration: std::time::Duration) -> Self {
-        assert!(duration >= std::time::Duration::from_millis(1));
-        Self(duration)
-    }
-}
-
-/// Helper trait that implements single-cycle execution for different runtime configurations.
-///
-/// `CycleOnce` abstracts over the different timeout calculation strategies needed
-/// for various clock and execution mode combinations. Each implementation handles:
-/// - **Time snapshot**: Getting current time from the clock
-/// - **Timeout calculation**: Determining how long to wait for I/O events
-/// - **Error handling**: Converting I/O errors to executor state
-///
-/// This trait enables generic execution patterns like `run_forever()` while
-/// allowing each runtime configuration to optimize its polling behavior.
-///
-/// # Implementation Strategies
-///
-/// - **`Spin`**: Always uses `Duration::ZERO` timeout for immediate polling
-/// - **`Sleep(max_duration)`**: Uses the minimum of max duration and next timer
-/// - **`Block`**: Waits indefinitely or until next timer (whichever comes first)
-/// - **`TestClock`**: Always uses immediate polling regardless of execution mode
-pub trait CycleOnce {
-    /// Executes one complete cycle and returns the executor state.
-    fn cycle_once(&mut self) -> ExecutorState;
-}
-
-/// Errors that can occur during runtime construction.
-#[derive(Debug, thiserror::Error)]
-pub enum RuntimeBuilderError {
-    #[error("no clock provided")]
-    NoClock,
-    #[error("no execution mode provided")]
-    NoExecutionMode,
-}
-
-/// Builder for constructing a runtime with specific clock and execution mode.
-///
-/// Uses the type system to ensure both clock and execution mode are provided
-/// before building the runtime.
-pub struct RuntimeBuilder<C: Clock, M: ExecutionMode> {
-    clock: Option<C>,
-    mode: Option<M>,
-}
-
-impl<C: Clock, M: ExecutionMode> RuntimeBuilder<C, M> {
-    pub const fn new() -> Self {
-        Self {
-            clock: None,
-            mode: None,
-        }
-    }
-
-    pub fn with_clock(mut self, clock: C) -> Self {
-        self.clock = Some(clock);
-        self
-    }
-
-    pub fn with_mode(mut self, mode: M) -> Self {
-        self.mode = Some(mode);
-        self
-    }
-
-    pub fn build(self) -> Result<Runtime<C, M>, RuntimeBuilderError> {
-        let clock = self.clock.ok_or(RuntimeBuilderError::NoClock)?;
-        let mode = self.mode.ok_or(RuntimeBuilderError::NoExecutionMode)?;
-        let executor = if mode.is_spin() {
-            Executor::new_spin_mode()
-        } else {
-            Executor::new()
-        };
-        Ok(Runtime {
-            executor,
-            clock,
-            mode,
-        })
-    }
+/// Park mode will park the thread if no event
+/// is available at the time of the poll. This
+/// trades off latency for energy usage.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, EnumAsInner)]
+pub enum ExecutionMode {
+    Spin,
+    Park,
 }
 
 #[cfg(feature = "testing")]
-pub type TestRuntime = Runtime<TestClock, Spin>;
+pub type TestRuntime = Runtime<TestClock>;
 #[allow(type_alias_bounds)]
-pub type RealtimeRuntime<M: ExecutionMode> = Runtime<PrecisionClock, M>;
-pub type HistoricalRuntime = Runtime<HistoricalClock, Spin>;
+pub type RealtimeRuntime = Runtime<PrecisionClock>;
+pub type HistoricalRuntime = Runtime<HistoricalClock>;
 
 /// A complete runtime instance that combines executor, clock, and execution mode.
 ///
@@ -315,7 +200,7 @@ pub type HistoricalRuntime = Runtime<HistoricalClock, Spin>;
 ///
 /// The type parameters ensure compile-time guarantees about clock and mode
 /// compatibility.
-pub struct Runtime<C: Clock, M: ExecutionMode> {
+pub struct Runtime<C: Clock> {
     /// The core computation engine
     executor: Executor,
 
@@ -323,42 +208,45 @@ pub struct Runtime<C: Clock, M: ExecutionMode> {
     clock: C,
 
     /// Execution strategy for the main loop
-    mode: M,
+    mode: ExecutionMode,
 }
 
-impl<C: Clock, M: ExecutionMode> Runtime<C, M> {
-    pub const fn builder() -> RuntimeBuilder<C, M> {
-        RuntimeBuilder::new()
-    }
-
-    pub fn executor(&mut self) -> &mut Executor {
+impl<C: Clock> Runtime<C> {
+    pub const fn executor(&mut self) -> &mut Executor {
         &mut self.executor
     }
 }
 
 #[cfg(feature = "testing")]
-impl Runtime<TestClock, Spin> {
+impl Runtime<TestClock> {
     pub fn new() -> Self {
-        Self::builder()
-            .with_clock(TestClock::new())
-            .with_mode(Spin)
-            .build()
-            .unwrap()
-    }
-}
-
-impl<M: ExecutionMode> Runtime<PrecisionClock, M>
-where
-    Self: CycleOnce,
-{
-    pub fn run_forever(mut self) {
-        while self.cycle_once().is_running() {
-            // continue
+        Self {
+            executor: Executor::new(),
+            clock: TestClock::new(),
+            mode: ExecutionMode::Spin,
         }
     }
+
+    pub fn run_one_cycle(&mut self) -> ExecutorState {
+        self.executor
+            .cycle(&mut self.clock, Some(std::time::Duration::ZERO))
+            .unwrap_or(ExecutorState::Running)
+    }
+
+    pub fn advance_clock(&mut self, duration: std::time::Duration) {
+        self.clock.advance(duration);
+    }
 }
 
-impl Runtime<HistoricalClock, Spin> {
+impl Runtime<HistoricalClock> {
+    pub fn new(interval: Interval) -> Self {
+        Self {
+            executor: Executor::new(),
+            clock: HistoricalClock::new(interval),
+            mode: ExecutionMode::Spin,
+        }
+    }
+
     pub fn run_until_completion(mut self) {
         while !self.clock.is_exhausted() {
             let state = self
@@ -373,61 +261,28 @@ impl Runtime<HistoricalClock, Spin> {
     }
 }
 
-impl CycleOnce for Runtime<PrecisionClock, Spin> {
-    #[inline(always)]
-    fn cycle_once(&mut self) -> ExecutorState {
-        self.executor
-            .cycle(&mut self.clock, Some(std::time::Duration::ZERO))
-            .unwrap_or(ExecutorState::Running)
+impl Runtime<PrecisionClock> {
+    pub fn new(mode: ExecutionMode) -> Self {
+        Self {
+            executor: Executor::new(),
+            clock: PrecisionClock::new(),
+            mode,
+        }
     }
-}
 
-impl CycleOnce for Runtime<PrecisionClock, Sleep> {
-    #[inline(always)]
-    fn cycle_once(&mut self) -> ExecutorState {
-        let now = self.clock.trigger_time();
-        let duration = self
+    pub fn run_forever(&mut self) {
+        while let ExecutorState::Running = self
             .executor
-            .next_timer()
-            .map(|when| (when.saturating_duration_since(now.instant)).min(self.mode.0))
-            .unwrap_or(self.mode.0);
-        self.executor
-            .cycle(&mut self.clock, Some(duration))
+            .cycle(
+                &mut self.clock,
+                match self.mode {
+                    ExecutionMode::Park => None,
+                    ExecutionMode::Spin => Some(std::time::Duration::ZERO),
+                },
+            )
             .unwrap_or(ExecutorState::Running)
-    }
-}
-
-impl CycleOnce for Runtime<PrecisionClock, Block> {
-    #[inline(always)]
-    fn cycle_once(&mut self) -> ExecutorState {
-        let now = self.clock.trigger_time();
-        let duration = self.executor.next_timer().map(|when| {
-            when.saturating_duration_since(now.instant)
-                .max(MINIMUM_TIMER_PRECISION)
-        });
-        self.executor
-            .cycle(&mut self.clock, duration)
-            .unwrap_or(ExecutorState::Running)
-    }
-}
-
-#[cfg(feature = "testing")]
-impl Runtime<TestClock, Spin> {
-    pub fn run_one_cycle(&mut self) -> ExecutorState {
-        self.cycle_once()
-    }
-
-    pub fn advance_clock(&mut self, duration: std::time::Duration) {
-        self.clock.advance(duration);
-    }
-}
-
-#[cfg(feature = "testing")]
-impl CycleOnce for Runtime<TestClock, Spin> {
-    #[inline(always)]
-    fn cycle_once(&mut self) -> ExecutorState {
-        self.executor
-            .cycle(&mut self.clock, Some(std::time::Duration::ZERO))
-            .unwrap_or(ExecutorState::Running)
+        {
+            // continue
+        }
     }
 }

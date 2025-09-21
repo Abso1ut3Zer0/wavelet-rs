@@ -257,19 +257,7 @@ impl Executor {
         Self {
             graph: Graph::new(),
             scheduler: UnsafeCell::new(Scheduler::new()),
-            event_driver: EventDriver::new(false),
-            edge_buffer: Vec::with_capacity(BUFFER_CAPACITY),
-            deferred_spawns: VecDeque::new(),
-            gc: GarbageCollector::new(),
-            epoch: 0,
-        }
-    }
-
-    pub(crate) fn new_spin_mode() -> Self {
-        Self {
-            graph: Graph::new(),
-            scheduler: UnsafeCell::new(Scheduler::new()),
-            event_driver: EventDriver::new(true),
+            event_driver: EventDriver::new(),
             edge_buffer: Vec::with_capacity(BUFFER_CAPACITY),
             deferred_spawns: VecDeque::new(),
             gc: GarbageCollector::new(),
@@ -334,15 +322,6 @@ impl Executor {
     /// The garbage collector coordinates deferred removal after cycle completion.
     pub(crate) fn garbage_collector(&mut self) -> GarbageCollector {
         self.gc.clone()
-    }
-
-    /// Returns when the next timer will expire, if any.
-    ///
-    /// Used by the runtime to optimize polling timeouts - if there's a timer
-    /// expiring soon, polling can be shortened to wake up at the right time.
-    #[inline(always)]
-    pub(crate) fn next_timer(&mut self) -> Option<Instant> {
-        self.event_driver.timer_driver().next_timer()
     }
 
     /// Executes a single cycle of the computation graph.
@@ -515,7 +494,7 @@ impl Executor {
 mod tests {
     use super::*;
     use crate::Relationship;
-    use crate::runtime::clock::{Clock, TestClock};
+    use crate::runtime::clock::TestClock;
     use crate::runtime::node::NodeBuilder;
     use std::cell::{Cell, RefCell};
     use std::rc::Rc;
@@ -663,45 +642,6 @@ mod tests {
     }
 
     #[test]
-    fn test_notifier_handling_spin_mode() {
-        let mut executor = Executor::new_spin_mode();
-        let mut clock = TestClock::new();
-
-        // Create a node that will be triggered by I/O
-        let (node, notifier) = NodeBuilder::new(0)
-            .build_with_notifier(&mut executor, |data, _ctx| {
-                *data += 1;
-                Control::Unchanged
-            })
-            .unwrap();
-
-        notifier.notify();
-
-        // Run cycle - this should pick up the event and schedule the node
-        executor.cycle(&mut clock, Some(Duration::ZERO)).unwrap();
-
-        // Verify the node was called due to an I/O event
-        assert_eq!(*node.borrow(), 1);
-
-        let unknown_notifier = executor.register_notifier(NodeIndex::from(100));
-        unknown_notifier.notify();
-
-        let driver = &mut executor.event_driver;
-        let graph = &mut executor.graph;
-        let scheduler = unsafe { &mut *executor.scheduler.get() };
-        let epoch = executor.epoch + 1;
-        driver
-            .poll(graph, scheduler, &mut clock, Some(Duration::ZERO), epoch)
-            .unwrap();
-
-        let mut count = 0;
-        while let Some(_) = scheduler.pop() {
-            count += 1;
-        }
-        assert_eq!(count, 0);
-    }
-
-    #[test]
     fn test_timer_event_handling() {
         let mut executor = Executor::new();
         let mut clock = TestClock::new();
@@ -828,35 +768,6 @@ mod tests {
         // All wsnl should have been called in order
         let order = call_order.borrow();
         assert_eq!(*order, vec![1, 2, 3]);
-    }
-
-    #[test]
-    fn test_next_timer_tracking() {
-        let mut executor = Executor::new();
-        let mut clock = TestClock::new();
-
-        // Initially no timers
-        assert_eq!(executor.next_timer(), None);
-
-        let _node = NodeBuilder::new(0)
-            .on_init(|executor, _, idx| {
-                // Force trigger the node
-                executor.yield_driver().yield_now(idx);
-            })
-            .build(&mut executor, |data, ctx| {
-                *data += 1;
-                let future_time = ctx.now() + Duration::from_millis(500);
-                ctx.register_timer(ctx.current(), future_time);
-                Control::Unchanged
-            });
-
-        // Don't have a registered timer yet
-        assert_eq!(executor.next_timer(), None);
-
-        executor.cycle(&mut clock, Some(Duration::ZERO)).unwrap();
-
-        // Should now return the timer time
-        let _expected_time = clock.trigger_time().instant + Duration::from_millis(500);
     }
 
     #[test]
