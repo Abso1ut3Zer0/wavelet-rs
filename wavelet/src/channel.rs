@@ -136,9 +136,8 @@ impl<T> Channel<T> {
         if self.receivers.load(Ordering::Acquire) == 0 {
             return Err(ChannelClosed(item));
         }
-        self.queue.force_push(item).map(|_| {
-            self.notifier.notify();
-        });
+        let _ = self.queue.force_push(item);
+        self.notifier.notify();
         Ok(())
     }
 
