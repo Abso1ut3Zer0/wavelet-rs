@@ -621,7 +621,7 @@ mod tests {
         assert_eq!(router.borrow().cache.borrow().len(), 2);
 
         tx.blocking_send(0).unwrap();
-        runtime.cycle_once();
+        runtime.run_one_cycle();
         println!("node0: {:?}", node0.borrow());
         println!("node1: {:?}", node1.borrow());
 
@@ -634,7 +634,7 @@ mod tests {
         tx.blocking_send(2).unwrap();
         tx.blocking_send(3).unwrap();
         tx.blocking_send(5).unwrap();
-        runtime.cycle_once();
+        runtime.run_one_cycle();
         println!("node0: {:?}", node0.borrow());
         println!("node1: {:?}", node1.borrow());
 
@@ -664,7 +664,7 @@ mod tests {
         assert_eq!(router.borrow().cache.borrow().len(), 2);
 
         drop(router);
-        runtime.cycle_once();
+        runtime.run_one_cycle();
         assert_eq!(runtime.executor().graph().node_count(), 0); // no nodes left in graph
     }
 
@@ -784,7 +784,7 @@ mod tests {
         left_push.push(vec![1, 2]);
         right_push.push(vec![10, 20]);
         switch_push.push(false); // Switch to right
-        runtime.cycle_once();
+        runtime.run_one_cycle();
 
         // Should use the new switch state (right)
         assert_eq!(*switch_node.borrow(), vec![10, 20]);
@@ -807,7 +807,7 @@ mod tests {
         // Both inputs get data in same cycle
         left_push.push(vec![1, 2]);
         right_push.push(vec![10, 20]);
-        runtime.cycle_once();
+        runtime.run_one_cycle();
 
         // Should only process the selected input (left)
         assert_eq!(*switch_node.borrow(), vec![1, 2]);
@@ -1013,7 +1013,7 @@ mod tests {
         primary_push.push(100);
         secondary_push.push(200);
         switch_push.push(false); // Switch to secondary
-        runtime.cycle_once();
+        runtime.run_one_cycle();
 
         // Should use the new switch state (secondary)
         assert_eq!(*switch_node.borrow(), 200);
@@ -1037,7 +1037,7 @@ mod tests {
         // Both inputs get data in same cycle
         primary_push.push(100);
         secondary_push.push(200);
-        runtime.cycle_once();
+        runtime.run_one_cycle();
 
         // Should only process the selected input (primary)
         assert_eq!(*switch_node.borrow(), 100);

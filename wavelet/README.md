@@ -31,10 +31,7 @@ use wavelet::prelude::*;
 use std::time::Duration;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let runtime = Runtime::builder()
-        .with_clock(PrecisionClock::new())
-        .with_mode(Sleep::new(Duration::from_millis(1)))
-        .build()?;
+    let runtime = RealtimeRuntime::new(ExecutionMode::Park);
 
     // Create a data source
     let source = NodeBuilder::new(0u64)

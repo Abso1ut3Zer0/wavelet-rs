@@ -1,5 +1,5 @@
 use crate::Control;
-use crate::runtime::{CycleOnce, Executor, Node, NodeBuilder, Notifier, TestRuntime};
+use crate::runtime::{Executor, Node, NodeBuilder, Notifier, TestRuntime};
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -28,7 +28,7 @@ impl<T: Default + 'static> Push<T> {
 
     pub fn push_with_cycle(&self, runtime: &mut TestRuntime, data: T) {
         self.push(data);
-        runtime.cycle_once();
+        runtime.run_one_cycle();
     }
 
     pub fn push_with_cycle_advance(
@@ -39,7 +39,7 @@ impl<T: Default + 'static> Push<T> {
     ) {
         self.push(data);
         runtime.advance_clock(duration);
-        runtime.cycle_once();
+        runtime.run_one_cycle();
     }
 
     fn take(&self) -> T {

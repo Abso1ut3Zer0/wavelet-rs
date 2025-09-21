@@ -6,7 +6,7 @@ mod test_clock;
 
 use std::time::Instant;
 
-pub use historical::HistoricalClock;
+pub use historical::{HistoricalClock, Interval};
 pub use precision_clock::PrecisionClock;
 pub use time::{Duration, OffsetDateTime};
 

@@ -77,6 +77,10 @@ impl Scheduler {
 
         // reset the queue since we are done
         self.curr_depth = 0;
+        debug_assert!(
+            self.pending_events == 0,
+            "pending_events not reset after exhausting queue"
+        );
         None
     }
 }

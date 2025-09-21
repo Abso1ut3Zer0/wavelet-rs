@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 use tokio::select;
 use wavelet::Control;
-use wavelet::prelude::{NodeBuilder, PrecisionClock, RealtimeRuntime, Spin};
+use wavelet::prelude::{ExecutionMode, NodeBuilder, RealtimeRuntime};
 
 const TOTAL_COUNT: usize = 10_000;
 
@@ -46,12 +46,7 @@ fn main() {
 fn run_wavelet() {
     let instant_queue = Arc::new(crossbeam_queue::ArrayQueue::<Instant>::new(1024));
 
-    let mut runtime = RealtimeRuntime::builder()
-        .with_mode(Spin)
-        .with_clock(PrecisionClock::new())
-        .build()
-        .unwrap();
-
+    let mut runtime = RealtimeRuntime::new(ExecutionMode::Spin);
     let (order_book, inbound) = NodeBuilder::new(OrderBook::new())
         .build_with_channel(runtime.executor(), 1, |this, _, rx| {
             if let Ok(book) = rx.try_receive() {

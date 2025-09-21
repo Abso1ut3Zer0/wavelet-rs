@@ -275,7 +275,7 @@ mod tests {
         let node = graph.add_node(create_test_node(call_count.clone(), should_mutate));
 
         // Create real components for ExecutionContext
-        let mut event_driver = EventDriver::new(false);
+        let mut event_driver = EventDriver::new();
         let scheduler = UnsafeCell::new(Scheduler::new());
         let mut deferred_spawns = VecDeque::new();
 
