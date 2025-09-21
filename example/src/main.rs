@@ -31,7 +31,7 @@ impl OrderBook {
 }
 
 fn main() {
-    const TEST_MODE: TestMode = TestMode::Tokio;
+    const TEST_MODE: TestMode = TestMode::Wavelet;
 
     match TEST_MODE {
         TestMode::Wavelet => {
@@ -164,7 +164,7 @@ fn run_wavelet() {
             book.bids.push((100.0, 1000.0));
             book.asks.push((101.0, 850.0));
 
-            inbound.blocking_send(book).ok();
+            inbound.force_send(book).ok();
             std::thread::sleep(std::time::Duration::from_millis(1));
         }
     });
