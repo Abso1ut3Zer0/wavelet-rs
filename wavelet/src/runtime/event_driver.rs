@@ -7,6 +7,7 @@ pub use crate::runtime::event_driver::timer_driver::*;
 pub use crate::runtime::event_driver::yield_driver::*;
 use crate::runtime::graph::Graph;
 use crate::runtime::scheduler::Scheduler;
+use crate::runtime::{Clock, TriggerTime};
 use ahash::{HashSet, HashSetExt};
 use petgraph::prelude::NodeIndex;
 use std::io;
@@ -146,10 +147,10 @@ impl EventDriver {
         &mut self,
         graph: &mut Graph,
         scheduler: &mut Scheduler,
+        clock: &mut impl Clock,
         timeout: Option<Duration>,
-        now: Instant,
         epoch: usize,
-    ) -> io::Result<()> {
+    ) -> io::Result<TriggerTime> {
         debug_assert!(
             (self.spin_mode && timeout.is_some() && timeout.unwrap() == Duration::ZERO)
                 || !self.spin_mode,
@@ -163,13 +164,23 @@ impl EventDriver {
                 }
             });
         }
+
+        let trigger_time = clock.trigger_time();
         self.yield_driver.poll(graph, scheduler, epoch);
-        self.timer_driver.poll(graph, scheduler, now, epoch);
-        if scheduler.has_pending_event() {
-            return self
-                .io_driver
-                .poll(graph, scheduler, Some(Duration::ZERO), epoch);
+        self.timer_driver
+            .poll(graph, scheduler, trigger_time.instant, epoch);
+        if scheduler.has_pending_event() || self.spin_mode {
+            self.io_driver
+                .poll(graph, scheduler, Some(Duration::ZERO), epoch)?;
+            return Ok(trigger_time);
         }
-        self.io_driver.poll(graph, scheduler, timeout, epoch)
+
+        let timeout = self
+            .timer_driver
+            .next_timer()
+            .map(|instant| instant.saturating_duration_since(trigger_time.instant))
+            .min(timeout);
+        self.io_driver.poll(graph, scheduler, timeout, epoch)?;
+        Ok(clock.trigger_time())
     }
 }

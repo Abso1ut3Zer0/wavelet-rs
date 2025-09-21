@@ -363,7 +363,7 @@ impl Runtime<HistoricalClock, Spin> {
         while !self.clock.is_exhausted() {
             let state = self
                 .executor
-                .cycle(self.clock.trigger_time(), Some(std::time::Duration::ZERO))
+                .cycle(&mut self.clock, Some(std::time::Duration::ZERO))
                 .unwrap_or(ExecutorState::Running);
 
             if state.is_terminated() {
@@ -377,7 +377,7 @@ impl CycleOnce for Runtime<PrecisionClock, Spin> {
     #[inline(always)]
     fn cycle_once(&mut self) -> ExecutorState {
         self.executor
-            .cycle(self.clock.trigger_time(), Some(std::time::Duration::ZERO))
+            .cycle(&mut self.clock, Some(std::time::Duration::ZERO))
             .unwrap_or(ExecutorState::Running)
     }
 }
@@ -392,7 +392,7 @@ impl CycleOnce for Runtime<PrecisionClock, Sleep> {
             .map(|when| (when.saturating_duration_since(now.instant)).min(self.mode.0))
             .unwrap_or(self.mode.0);
         self.executor
-            .cycle(now, Some(duration))
+            .cycle(&mut self.clock, Some(duration))
             .unwrap_or(ExecutorState::Running)
     }
 }
@@ -406,7 +406,7 @@ impl CycleOnce for Runtime<PrecisionClock, Block> {
                 .max(MINIMUM_TIMER_PRECISION)
         });
         self.executor
-            .cycle(now, duration)
+            .cycle(&mut self.clock, duration)
             .unwrap_or(ExecutorState::Running)
     }
 }
@@ -427,7 +427,7 @@ impl CycleOnce for Runtime<TestClock, Spin> {
     #[inline(always)]
     fn cycle_once(&mut self) -> ExecutorState {
         self.executor
-            .cycle(self.clock.trigger_time(), Some(std::time::Duration::ZERO))
+            .cycle(&mut self.clock, Some(std::time::Duration::ZERO))
             .unwrap_or(ExecutorState::Running)
     }
 }
