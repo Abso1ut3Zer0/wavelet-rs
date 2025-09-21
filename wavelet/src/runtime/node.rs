@@ -1,6 +1,5 @@
-use crate::channel::Channel;
 #[cfg(feature = "channel")]
-use crate::channel::{Receiver, Sender};
+use crate::channel::{Channel, Receiver, Sender};
 use crate::runtime::executor::{ExecutionContext, Executor};
 use crate::runtime::garbage_collector::GarbageCollector;
 use crate::runtime::graph::NodeContext;
