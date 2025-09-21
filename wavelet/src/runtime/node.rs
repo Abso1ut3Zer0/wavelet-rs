@@ -1,5 +1,6 @@
+use crate::channel::Channel;
 #[cfg(feature = "channel")]
-use crate::channel::{Receiver, Sender, new_channel};
+use crate::channel::{Receiver, Sender};
 use crate::runtime::executor::{ExecutionContext, Executor};
 use crate::runtime::garbage_collector::GarbageCollector;
 use crate::runtime::graph::NodeContext;
@@ -10,6 +11,7 @@ use std::cell::UnsafeCell;
 use std::collections::HashSet;
 use std::io;
 use std::rc::{Rc, Weak};
+use std::sync::Arc;
 
 type OnDrop<T> = Box<dyn FnMut(&mut T) + 'static>;
 
@@ -938,8 +940,8 @@ impl<T: 'static> NodeBuilder<T> {
             .map(|d| d + 1)
             .unwrap_or(0);
 
-        let notifier = executor.register_notifier(node.index());
-        let (tx, rx) = new_channel(capacity, notifier);
+        let chan = Arc::new(Channel::new(capacity));
+        let rx = Receiver::new(chan.clone());
         {
             let state = node.downgrade();
             let receiver = rx;
@@ -990,6 +992,8 @@ impl<T: 'static> NodeBuilder<T> {
             inner.on_drop = self.on_drop;
         }
 
+        let notifier = executor.register_notifier(node.index());
+        let tx = Sender::new(chan, notifier);
         Ok((node, tx))
     }
 
