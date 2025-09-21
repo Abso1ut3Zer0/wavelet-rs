@@ -27,13 +27,14 @@ pub enum TryReceiveError {
 
 pub struct Sender<T> {
     chan: Arc<Channel<T>>,
+    notifier: Notifier,
 }
 
 impl<T> Drop for Sender<T> {
     fn drop(&mut self) {
         let prev = self.chan.senders.fetch_sub(1, Ordering::Release);
         if prev == 1 {
-            self.chan.notifier.notify();
+            self.notifier.notify();
         }
     }
 }
@@ -43,24 +44,35 @@ impl<T> Clone for Sender<T> {
         self.chan.senders.fetch_add(1, Ordering::AcqRel);
         Self {
             chan: self.chan.clone(),
+            notifier: self.notifier.clone(),
         }
     }
 }
 
 impl<T> Sender<T> {
+    pub(crate) fn new(chan: Arc<Channel<T>>, notifier: Notifier) -> Self {
+        Self { chan, notifier }
+    }
+
     #[inline(always)]
     pub fn try_send(&self, item: T) -> Result<(), TrySendError<T>> {
-        self.chan.try_send(item)
+        self.chan.try_send(item)?;
+        self.notifier.notify();
+        Ok(())
     }
 
     #[inline(always)]
     pub fn blocking_send(&self, item: T) -> Result<(), ChannelClosed<T>> {
-        self.chan.blocking_send(item)
+        self.chan.blocking_send(item)?;
+        self.notifier.notify();
+        Ok(())
     }
 
     #[inline(always)]
     pub fn force_send(&self, item: T) -> Result<(), ChannelClosed<T>> {
-        self.chan.force_send(item)
+        self.chan.force_send(item)?;
+        self.notifier.notify();
+        Ok(())
     }
 }
 
@@ -75,24 +87,26 @@ impl<T> Drop for Receiver<T> {
 }
 
 impl<T> Receiver<T> {
+    pub(crate) fn new(chan: Arc<Channel<T>>) -> Self {
+        Self { chan }
+    }
+
     #[inline(always)]
     pub fn try_receive(&self) -> Result<T, TryReceiveError> {
         self.chan.try_receive()
     }
 }
 
-struct Channel<T> {
+pub(crate) struct Channel<T> {
     queue: ArrayQueue<T>,
-    notifier: Notifier,
     senders: CachePadded<AtomicUsize>,
     receivers: CachePadded<AtomicUsize>,
 }
 
 impl<T> Channel<T> {
-    fn new(capacity: usize, notifier: Notifier) -> Self {
+    pub(crate) fn new(capacity: usize) -> Self {
         Self {
             queue: ArrayQueue::new(capacity),
-            notifier,
             senders: CachePadded::new(AtomicUsize::new(1)),
             receivers: CachePadded::new(AtomicUsize::new(1)),
         }
@@ -107,9 +121,6 @@ impl<T> Channel<T> {
         self.queue
             .push(item)
             .map_err(|item| TrySendError::ChannelFull(item))
-            .map(|_| {
-                self.notifier.notify();
-            })
     }
 
     #[inline(always)]
@@ -137,7 +148,6 @@ impl<T> Channel<T> {
             return Err(ChannelClosed(item));
         }
         let _ = self.queue.force_push(item);
-        self.notifier.notify();
         Ok(())
     }
 
@@ -153,13 +163,6 @@ impl<T> Channel<T> {
             }
         }
     }
-}
-
-pub(crate) fn new_channel<T>(capacity: usize, notifier: Notifier) -> (Sender<T>, Receiver<T>) {
-    let chan = Arc::new(Channel::new(capacity, notifier));
-    let sender = Sender { chan: chan.clone() };
-    let receiver = Receiver { chan };
-    (sender, receiver)
 }
 
 #[cfg(test)]
@@ -502,5 +505,30 @@ mod tests {
             .cycle(clock.trigger_time(), Some(Duration::ZERO))
             .unwrap();
         assert_eq!(*node.borrow(), true);
+    }
+
+    #[test]
+    fn test_channel_not_zero_index() {
+        let mut executor = Executor::new();
+        let mut clock = TestClock::new();
+
+        // spawn background node
+        let zero_node = NodeBuilder::new(()).build(&mut executor, |_, _| Control::Unchanged);
+        assert_eq!(zero_node.index().index(), 0);
+
+        let (node, tx) = NodeBuilder::new("25".to_string())
+            .build_with_channel(&mut executor, 1, |this, _, rx| {
+                let item = rx.try_receive().unwrap();
+                *this = format!("{}", item);
+                Control::Broadcast
+            })
+            .unwrap();
+
+        tx.blocking_send(1).unwrap();
+        executor
+            .cycle(clock.trigger_time(), Some(Duration::ZERO))
+            .unwrap();
+        assert!(executor.has_mutated(&node));
+        assert_eq!(*node.borrow(), "1");
     }
 }
