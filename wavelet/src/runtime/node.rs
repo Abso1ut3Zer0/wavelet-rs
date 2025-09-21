@@ -10,6 +10,8 @@ use std::cell::UnsafeCell;
 use std::collections::HashSet;
 use std::io;
 use std::rc::{Rc, Weak};
+
+#[cfg(feature = "channel")]
 use std::sync::Arc;
 
 type OnDrop<T> = Box<dyn FnMut(&mut T) + 'static>;
