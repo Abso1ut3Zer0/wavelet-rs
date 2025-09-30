@@ -9,7 +9,7 @@
 //! Stream processing applications often need to:
 //! - Use different data sources in dev/staging/production environments
 //! - Swap real implementations with mocks during testing
-//! - Share expensive resources (database connections, file handles) across wsnl
+//! - Share expensive resources (database connections, file handles) across nodes
 //! - Configure behavior based on runtime parameters without changing graph structure
 //!
 //! Traditional approaches either hardcode dependencies (inflexible) or use runtime
@@ -40,7 +40,7 @@
 //!
 //! ## Performance Benefits
 //! - **Zero runtime overhead**: All binding happens at graph construction time
-//! - **Efficient caching**: Expensive wsnl created once and reused
+//! - **Efficient caching**: Expensive nodes created once and reused
 //! - **Type safety**: Compile-time guarantees about node compatibility
 //! - **Predictable execution**: No hidden service location during node cycles
 //!
@@ -67,7 +67,7 @@
 //! 1. **Build Phase**: Factories configure different implementations
 //! 2. **Graph Construction**: Nodes are created through factory calls
 //! 3. **Runtime Phase**: Graph topology is fixed, execution is deterministic
-//! 4. **Dynamic Spawning**: Runtime wsnl can still create subgraphs as needed
+//! 4. **Dynamic Spawning**: Runtime nodes can still create subgraphs as needed
 //!
 //! This provides the flexibility of dependency injection without compromising
 //! the performance and predictability of the core execution model.

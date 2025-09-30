@@ -242,7 +242,7 @@ impl<T: 'static> Node<T> {
 
     /// Provides immutable access to the node's data.
     ///
-    /// This is the primary way to read node data from other wsnl.
+    /// This is the primary way to read node data from other nodes.
     /// For mutations, use the mutable access provided within cycle functions.
     #[inline(always)]
     pub fn borrow(&self) -> &T {
@@ -410,7 +410,7 @@ impl<T: 'static> ExclusiveNode<T> {
 
     /// Provides immutable access to the node's data.
     ///
-    /// This is the primary way to read node data from other wsnl.
+    /// This is the primary way to read node data from other nodes.
     /// For mutations, use the mutable access provided within cycle functions.
     #[inline(always)]
     pub fn borrow(&self) -> &T {
@@ -505,10 +505,10 @@ impl<T: 'static> Drop for NodeInner<T> {
     }
 }
 
-/// Builder for creating wsnl in the computation graph.
+/// Builder for creating nodes in the computation graph.
 ///
 /// `NodeBuilder<T>` is the primary interface users interact with when creating
-/// wsnl. It provides a fluent API for configuring node relationships, lifecycle
+/// nodes. It provides a fluent API for configuring node relationships, lifecycle
 /// callbacks, and metadata before inserting the node into the graph.
 ///
 /// The builder follows a clear pattern:
@@ -618,7 +618,7 @@ impl<T: 'static> NodeBuilder<T> {
         self
     }
 
-    /// Adds multiple dependency relationships to other wsnl with
+    /// Adds multiple dependency relationships to other nodes with
     /// the same relationship type.
     #[inline]
     pub fn add_many_relationships<'a, N: NodeHandle + 'a>(
@@ -1002,9 +1002,9 @@ impl<T: 'static> NodeBuilder<T> {
     ///
     /// This creates the node in the graph but doesn't return a handle to it.
     /// The node will stay alive as long as it has incoming edges from other
-    /// wsnl or until it returns `Control::Sweep`. Use this pattern for:
-    /// - Leaf wsnl that don't need external references
-    /// - Temporary processing wsnl
+    /// nodes or until it returns `Control::Sweep`. Use this pattern for:
+    /// - Leaf nodes that don't need external references
+    /// - Temporary processing nodes
     /// - Nodes that manage their own lifecycle
     ///
     /// # Safety Note

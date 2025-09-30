@@ -1,4 +1,4 @@
-use crate::runtime::clock::{Clock, TriggerTime};
+use crate::runtime::clock::{Clock, CycleTime};
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
@@ -52,11 +52,11 @@ impl TestClock {
 }
 
 impl Clock for TestClock {
-    fn trigger_time(&mut self) -> TriggerTime {
+    fn cycle_time(&mut self) -> CycleTime {
         let inner = self.0.borrow();
-        TriggerTime {
+        CycleTime {
             instant: inner.current_instant(),
-            system_time: inner.current_wall_time(),
+            unix_time: inner.current_wall_time(),
         }
     }
 }
@@ -139,10 +139,10 @@ mod tests {
     #[test]
     fn test_clock_starts_at_epoch() {
         let mut clock = TestClock::new();
-        let time = clock.trigger_time();
+        let time = clock.cycle_time();
 
         // Should start at Unix epoch
-        assert_eq!(time.system_time, OffsetDateTime::UNIX_EPOCH);
+        assert_eq!(time.unix_time, OffsetDateTime::UNIX_EPOCH);
         assert_eq!(clock.elapsed(), Duration::ZERO);
     }
 
@@ -152,11 +152,11 @@ mod tests {
 
         // Advance by 1 hour
         clock.advance(Duration::from_secs(3600));
-        let time = clock.trigger_time();
+        let time = clock.cycle_time();
 
         // Should be 1 hour after epoch
         assert_eq!(
-            time.system_time,
+            time.unix_time,
             OffsetDateTime::UNIX_EPOCH + Duration::from_secs(3600)
         );
         assert_eq!(clock.elapsed(), Duration::from_secs(3600));
@@ -165,10 +165,10 @@ mod tests {
     #[test]
     fn test_predictable_instants() {
         let mut clock = TestClock::new();
-        let time1 = clock.trigger_time();
+        let time1 = clock.cycle_time();
 
         clock.advance(Duration::from_millis(500));
-        let time2 = clock.trigger_time();
+        let time2 = clock.cycle_time();
 
         // Instant difference should be exactly 500ms
         assert_eq!(
@@ -182,14 +182,14 @@ mod tests {
         let start_time = OffsetDateTime::from_unix_timestamp(1000000000).unwrap(); // 2001-09-09
         let mut clock = TestClock::starting_at(start_time);
 
-        let time = clock.trigger_time();
-        assert_eq!(time.system_time, start_time);
+        let time = clock.cycle_time();
+        assert_eq!(time.unix_time, start_time);
         assert_eq!(clock.elapsed(), Duration::ZERO);
 
         // Advance and check
         clock.advance(Duration::from_secs(60));
-        let time2 = clock.trigger_time();
-        assert_eq!(time2.system_time, start_time + Duration::from_secs(60));
+        let time2 = clock.cycle_time();
+        assert_eq!(time2.unix_time, start_time + Duration::from_secs(60));
     }
 
     #[test]
@@ -198,10 +198,10 @@ mod tests {
 
         // Jump to 5 minutes elapsed
         clock.set_elapsed(Duration::from_secs(300));
-        let time = clock.trigger_time();
+        let time = clock.cycle_time();
 
         assert_eq!(
-            time.system_time,
+            time.unix_time,
             OffsetDateTime::UNIX_EPOCH + Duration::from_secs(300)
         );
         assert_eq!(clock.elapsed(), Duration::from_secs(300));
@@ -217,9 +217,9 @@ mod tests {
 
         // Reset back to baseline
         clock.reset();
-        let time = clock.trigger_time();
+        let time = clock.cycle_time();
 
-        assert_eq!(time.system_time, OffsetDateTime::UNIX_EPOCH);
+        assert_eq!(time.unix_time, OffsetDateTime::UNIX_EPOCH);
         assert_eq!(clock.elapsed(), Duration::ZERO);
     }
 
@@ -229,14 +229,14 @@ mod tests {
 
         // This is much more readable in tests!
         clock.set_elapsed(Duration::from_secs(3600)); // 1 hour
-        let time = clock.trigger_time();
+        let time = clock.cycle_time();
 
         // Clear, predictable assertions
-        assert_eq!(time.system_time.unix_timestamp(), 3600); // 1970-01-01 01:00:00 UTC
+        assert_eq!(time.unix_time.unix_timestamp(), 3600); // 1970-01-01 01:00:00 UTC
 
         clock.advance(Duration::from_secs(1800)); // +30 minutes
-        let time2 = clock.trigger_time();
-        assert_eq!(time2.system_time.unix_timestamp(), 5400); // 1970-01-01 01:30:00 UTC
+        let time2 = clock.cycle_time();
+        assert_eq!(time2.unix_time.unix_timestamp(), 5400); // 1970-01-01 01:30:00 UTC
     }
 
     #[test]
@@ -256,10 +256,10 @@ mod tests {
         let mut clock = TestClock::new();
 
         // Multiple calls should return the same instant at the same elapsed time
-        let time1 = clock.trigger_time();
-        let time2 = clock.trigger_time();
+        let time1 = clock.cycle_time();
+        let time2 = clock.cycle_time();
 
         assert_eq!(time1.instant, time2.instant);
-        assert_eq!(time1.system_time, time2.system_time);
+        assert_eq!(time1.unix_time, time2.unix_time);
     }
 }

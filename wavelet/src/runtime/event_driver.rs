@@ -7,7 +7,7 @@ pub use crate::runtime::event_driver::timer_driver::*;
 pub use crate::runtime::event_driver::yield_driver::*;
 use crate::runtime::graph::Graph;
 use crate::runtime::scheduler::Scheduler;
-use crate::runtime::{Clock, TriggerTime};
+use crate::runtime::{Clock, CycleTime};
 use ahash::{HashSet, HashSetExt};
 use petgraph::prelude::NodeIndex;
 use std::io;
@@ -63,7 +63,7 @@ impl Notifier {
 /// Unified event management system that coordinates all event sources.
 ///
 /// The `EventDriver` orchestrates the three core event types in the runtime:
-/// - **Yield events**: Immediate scheduling requests from wsnl
+/// - **Yield events**: Immediate scheduling requests from nodes
 /// - **Timer events**: Time-based scheduling for delayed execution
 /// - **I/O events**: External events from network, files, or user input
 ///
@@ -121,7 +121,7 @@ impl EventDriver {
         Notifier::new(self.raw_events.clone(), self.io_driver.waker(), node_index)
     }
 
-    /// Polls all event sources and schedules ready wsnl.
+    /// Polls all event sources and schedules ready nodes.
     ///
     /// Coordinates event polling across all three drivers in a specific order:
     /// 1. **Yield events**: Process immediate scheduling requests first
@@ -139,7 +139,7 @@ impl EventDriver {
         clock: &mut impl Clock,
         timeout: Option<Duration>,
         epoch: usize,
-    ) -> io::Result<TriggerTime> {
+    ) -> io::Result<CycleTime> {
         {
             let mut raw_events = self.raw_events.lock();
             raw_events.drain().for_each(|node_idx| {
@@ -149,40 +149,40 @@ impl EventDriver {
             });
         }
 
-        let trigger_time = clock.trigger_time();
+        let cycle_time = clock.cycle_time();
         self.yield_driver.poll(graph, scheduler, epoch);
         self.timer_driver
-            .poll(graph, scheduler, trigger_time.instant, epoch);
+            .poll(graph, scheduler, cycle_time.now(), epoch);
         if scheduler.has_pending_event() || timeout == Some(Duration::ZERO) {
             self.io_driver
                 .poll(graph, scheduler, Some(Duration::ZERO), epoch)?;
-            return Ok(trigger_time);
+            return Ok(cycle_time);
         }
 
         let sleep_duration = self
             .timer_driver
             .next_timer()
-            .map(|instant| instant.saturating_duration_since(trigger_time.instant));
+            .map(|instant| instant.saturating_duration_since(cycle_time.now()));
         match (timeout, sleep_duration) {
             (Some(timeout), Some(sleep_duration)) => {
                 let timeout = timeout.min(sleep_duration).max(MINIMUM_TIMER_PRECISION);
                 self.io_driver
                     .poll(graph, scheduler, Some(timeout), epoch)?;
-                return Ok(clock.trigger_time());
+                return Ok(clock.cycle_time());
             }
             (Some(timeout), None) => {
                 self.io_driver
                     .poll(graph, scheduler, Some(timeout), epoch)?;
-                return Ok(clock.trigger_time());
+                return Ok(clock.cycle_time());
             }
             (None, Some(sleep_duration)) => {
                 self.io_driver
                     .poll(graph, scheduler, Some(sleep_duration), epoch)?;
-                return Ok(clock.trigger_time());
+                return Ok(clock.cycle_time());
             }
             (None, None) => {
                 self.io_driver.poll(graph, scheduler, None, epoch)?;
-                return Ok(clock.trigger_time());
+                return Ok(clock.cycle_time());
             }
         }
     }

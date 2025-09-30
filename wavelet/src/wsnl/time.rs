@@ -1,7 +1,7 @@
 //! # Time-Based Nodes
 //!
 //! Nodes that create periodic events and manage timing-based operations within
-//! the execution graph. These wsnl integrate with the runtime's timer system
+//! the execution graph. These nodes integrate with the runtime's timer system
 //! to provide scheduled execution capabilities.
 
 use crate::Control;
@@ -63,7 +63,7 @@ pub fn periodic_trigger_node(
             ex.yield_driver().yield_now(idx);
         })
         .build(executor, move |this, ctx| {
-            let source = ctx.register_timer(ctx.current(), ctx.now() + duration);
+            let source = ctx.register_timer(ctx.current(), ctx.cycle_time().now() + duration);
             if this.is_some() {
                 let _ = this.insert(source);
                 Control::Broadcast

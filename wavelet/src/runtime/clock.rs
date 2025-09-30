@@ -19,18 +19,30 @@ pub use test_clock::TestClock;
 /// - `instant`: Monotonic time for measuring durations and intervals
 /// - `system_time`: Wall clock time for timestamps and human-readable times
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct TriggerTime {
-    pub instant: Instant,
-    pub system_time: OffsetDateTime,
+pub struct CycleTime {
+    instant: Instant,
+    unix_time: OffsetDateTime,
 }
 
-impl TriggerTime {
+impl CycleTime {
     /// Create a new TriggerTime with the given instant and system time
     pub fn new(instant: Instant, system_time: OffsetDateTime) -> Self {
         Self {
             instant,
-            system_time,
+            unix_time: system_time,
         }
+    }
+
+    pub const fn now(&self) -> Instant {
+        self.instant
+    }
+
+    pub const fn unix_timestamp(&self) -> OffsetDateTime {
+        self.unix_time
+    }
+
+    pub const fn unix_timestamp_nanos(&self) -> i128 {
+        self.unix_time.unix_timestamp_nanos()
     }
 }
 
@@ -40,9 +52,9 @@ impl TriggerTime {
 /// suitable for both performance timing (via `instant`) and timestamping
 /// (via `system_time`).
 pub trait Clock {
-    /// Get the current trigger time containing both monotonic and wall clock times.
+    /// Get the current cycle time containing both monotonic and wall clock times.
     ///
     /// The returned times should represent the same moment, captured as atomically
     /// as possible to minimize skew between the monotonic and wall clock components.
-    fn trigger_time(&mut self) -> TriggerTime;
+    fn cycle_time(&mut self) -> CycleTime;
 }

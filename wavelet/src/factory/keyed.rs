@@ -5,10 +5,10 @@ use std::collections::hash_map::Entry;
 use std::hash::Hash;
 use std::rc::Rc;
 
-/// A dependency injection factory that creates and caches wsnl based on keys.
+/// A dependency injection factory that creates and caches nodes based on keys.
 ///
 /// `KeyedFactory<K, T>` provides a build-time configuration mechanism for creating
-/// wsnl with different implementations while maintaining the same graph topology.
+/// nodes with different implementations while maintaining the same graph topology.
 /// Each unique key gets its own cached node instance, enabling efficient reuse
 /// of expensive subgraph construction.
 ///
@@ -19,7 +19,7 @@ use std::rc::Rc;
 /// - **Environment-specific implementations**: Different factories for dev/staging/prod
 /// - **Testing flexibility**: Mock implementations using identical graph structure
 /// - **Configuration-driven graphs**: Build different node types based on runtime config
-/// - **Resource sharing**: Expensive wsnl (database connections, etc.) created once per key
+/// - **Resource sharing**: Expensive nodes (database connections, etc.) created once per key
 ///
 /// # Example: Market Data Factory
 ///
@@ -52,7 +52,7 @@ use std::rc::Rc;
 /// # Lifecycle
 ///
 /// 1. **Attach**: Configure the factory function at build time
-/// 2. **Get**: Request wsnl by key during graph construction
+/// 2. **Get**: Request nodes by key during graph construction
 /// 3. **Cache**: First request creates and caches the node
 /// 4. **Reuse**: Subsequent requests for the same key return the cached node
 ///
@@ -71,7 +71,7 @@ impl<'a, K: Hash + Eq, T: 'static> Default for KeyedFactory<'a, K, T> {
 }
 
 impl<'a, K: Hash + Eq, T: 'static> KeyedFactory<'a, K, T> {
-    /// Configures the factory function that creates wsnl for each key.
+    /// Configures the factory function that creates nodes for each key.
     ///
     /// The factory function receives:
     /// - `executor`: Full access to the runtime for node creation

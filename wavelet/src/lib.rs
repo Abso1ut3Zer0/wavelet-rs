@@ -18,10 +18,10 @@ pub mod wsnl;
 //   - Timer driver improvements
 //   - Trace logging + metrics capable of tracking subgraphs
 
-/// Defines how wsnl relate to each other in the computation graph.
+/// Defines how nodes relate to each other in the computation graph.
 ///
-/// Relationships determine when and how changes propagate between wsnl.
-/// This is fundamental to the incremental computation model - wsnl only
+/// Relationships determine when and how changes propagate between nodes.
+/// This is fundamental to the incremental computation model - nodes only
 /// recompute when their dependencies change.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, EnumAsInner)]
 pub enum Relationship {
@@ -47,13 +47,13 @@ pub enum Relationship {
 /// after the node completes execution.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, EnumAsInner)]
 pub enum Control {
-    /// Schedule all wsnl with `Trigger` relationships to this node.
+    /// Schedule all nodes with `Trigger` relationships to this node.
     ///
-    /// Use when this node has mutated and downstream wsnl should react
+    /// Use when this node has mutated and downstream nodes should react
     /// to the changes.
     Broadcast,
 
-    /// This node did not change - don't schedule any dependent wsnl.
+    /// This node did not change - don't schedule any dependent nodes.
     ///
     /// Use when the node has processed data but its state didn't
     /// change in a way that would affect downstream computations.

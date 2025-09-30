@@ -54,12 +54,12 @@ impl NodeContext {
 /// The computation graph that manages node relationships and execution.
 ///
 /// Uses `petgraph::StableGraph` as the backing store, which provides:
-/// - **Stable indices**: `NodeIndex` values remain valid even after other wsnl are removed
-/// - **Efficient removal**: Removed wsnl leave gaps that can be reused for new wsnl
+/// - **Stable indices**: `NodeIndex` values remain valid even after other nodes are removed
+/// - **Efficient removal**: Removed nodes leave gaps that can be reused for new nodes
 /// - **O(1) access**: Direct indexing into node and edge data
 ///
-/// The stable indices are crucial for the runtime's design - wsnl can safely
-/// hold references to other wsnl via `NodeIndex` without worrying about
+/// The stable indices are crucial for the runtime's design - nodes can safely
+/// hold references to other nodes via `NodeIndex` without worrying about
 /// invalidation during garbage collection.
 pub struct Graph {
     /// Backing graph storage with stable node indices
@@ -96,9 +96,9 @@ impl Graph {
         None
     }
 
-    /// Returns an iterator over child wsnl with `Trigger` relationships.
+    /// Returns an iterator over child nodes with `Trigger` relationships.
     ///
-    /// Used during broadcast propagation to find which wsnl should be
+    /// Used during broadcast propagation to find which nodes should be
     /// scheduled when the current node mutates.
     #[inline(always)]
     pub(crate) fn triggering_edges(
@@ -111,7 +111,7 @@ impl Graph {
             .map(|edge| edge.target())
     }
 
-    /// Returns an iterator over all child wsnl.
+    /// Returns an iterator over all child nodes.
     ///
     /// Used during broadcast propagation, particularly when we need to clean
     /// up child relationships in the event of a `Control::Sweep`.
@@ -140,7 +140,7 @@ impl Graph {
         self.inner.add_node(weight)
     }
 
-    /// Creates a directed edge between two wsnl with the specified relationship.
+    /// Creates a directed edge between two nodes with the specified relationship.
     #[inline(always)]
     pub(crate) fn add_edge(
         &mut self,
@@ -160,7 +160,7 @@ impl Graph {
         self.inner.remove_node(node_index);
     }
 
-    /// Returns the current number of wsnl in the graph.
+    /// Returns the current number of nodes in the graph.
     #[allow(dead_code)]
     pub(crate) fn node_count(&self) -> usize {
         self.inner.node_count()
@@ -175,7 +175,7 @@ impl Graph {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::runtime::clock::TriggerTime;
+    use crate::runtime::clock::CycleTime;
     use crate::runtime::event_driver::EventDriver;
     use crate::runtime::executor::ExecutionContext;
     use crate::runtime::scheduler::Scheduler;
@@ -283,10 +283,7 @@ mod tests {
             &mut event_driver,
             &scheduler,
             &mut deferred_spawns,
-            TriggerTime {
-                instant: Instant::now(),
-                system_time: OffsetDateTime::now_utc(),
-            },
+            CycleTime::new(Instant::now(), OffsetDateTime::now_utc()),
             1,
         );
 

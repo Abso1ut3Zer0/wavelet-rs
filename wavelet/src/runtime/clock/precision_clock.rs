@@ -1,4 +1,4 @@
-use crate::runtime::clock::{Clock, TriggerTime};
+use crate::runtime::clock::{Clock, CycleTime};
 use std::time::{Duration, Instant};
 use time::OffsetDateTime;
 
@@ -179,7 +179,7 @@ impl PrecisionClock {
 }
 
 impl Clock for PrecisionClock {
-    fn trigger_time(&mut self) -> TriggerTime {
+    fn cycle_time(&mut self) -> CycleTime {
         let now_instant = Instant::now();
 
         // Check if we need to automatically resync
@@ -187,11 +187,11 @@ impl Clock for PrecisionClock {
 
         // Calculate wall time using our baseline offset
         let elapsed_since_baseline = now_instant.duration_since(self.base_instant);
-        let estimated_trigger_time = self.base_wall_time + elapsed_since_baseline;
+        let estimated_cycle_time = self.base_wall_time + elapsed_since_baseline;
 
-        TriggerTime {
+        CycleTime {
             instant: now_instant,
-            system_time: estimated_trigger_time,
+            unix_time: estimated_cycle_time,
         }
     }
 }
@@ -240,13 +240,13 @@ mod tests {
     fn test_time_advances() {
         let mut clock = PrecisionClock::new();
 
-        let time1 = clock.trigger_time();
+        let time1 = clock.cycle_time();
         thread::sleep(Duration::from_millis(1));
-        let time2 = clock.trigger_time();
+        let time2 = clock.cycle_time();
 
         // Time should advance
         assert!(time2.instant > time1.instant);
-        assert!(time2.system_time > time1.system_time);
+        assert!(time2.unix_time > time1.unix_time);
     }
 
     #[test]
@@ -258,8 +258,8 @@ mod tests {
         clock.resync();
 
         // Should still work
-        let time = clock.trigger_time();
-        assert!(time.system_time.unix_timestamp() > 0);
+        let time = clock.cycle_time();
+        assert!(time.unix_time.unix_timestamp() > 0);
 
         // Accuracy might change but should still be reasonable
         assert!(clock.is_accurate() == initial_accuracy || !clock.is_accurate());
@@ -270,12 +270,12 @@ mod tests {
         let mut clock = PrecisionClock::new();
 
         // Multiple rapid calls should maintain reasonable consistency
-        let times: Vec<_> = (0..10).map(|_| clock.trigger_time()).collect();
+        let times: Vec<_> = (0..10).map(|_| clock.cycle_time()).collect();
 
         // All times should be increasing
         for window in times.windows(2) {
             assert!(window[1].instant >= window[0].instant);
-            assert!(window[1].system_time >= window[0].system_time);
+            assert!(window[1].unix_time >= window[0].unix_time);
         }
     }
 
