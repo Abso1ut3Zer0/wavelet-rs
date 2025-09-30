@@ -35,7 +35,7 @@ pub struct TimerSource {
 /// - Timers registered for the same instant fire in registration order
 /// - Each timer can be uniquely identified and cancelled
 pub struct TimerDriver {
-    /// Ordered map of active timers to their associated wsnl
+    /// Ordered map of active timers to their associated nodes
     timers: BTreeMap<TimerSource, NodeIndex>,
 
     /// Monotonically increasing sequence counter for unique timer IDs
@@ -89,10 +89,10 @@ impl TimerDriver {
         self.timers.remove(&source);
     }
 
-    /// Checks for expired timers and schedules their associated wsnl.
+    /// Checks for expired timers and schedules their associated nodes.
     ///
     /// Processes all timers that have expired as of the current time, scheduling
-    /// their wsnl for execution. Uses epoch-based deduplication to prevent
+    /// their nodes for execution. Uses epoch-based deduplication to prevent
     /// scheduling the same node multiple times per cycle.
     ///
     /// The implementation efficiently processes expired timers by leveraging
@@ -237,7 +237,7 @@ mod tests {
         let mut scheduler = Scheduler::new();
         scheduler.resize(5);
 
-        // Add multiple wsnl
+        // Add multiple nodes
         let node1_ctx = NodeContext::new(Box::new(|_| Control::Unchanged), 1);
         let node2_ctx = NodeContext::new(Box::new(|_| Control::Unchanged), 3);
         let node3_ctx = NodeContext::new(Box::new(|_| Control::Unchanged), 2);
@@ -324,14 +324,14 @@ mod tests {
         // Initially no timers
         assert_eq!(driver.next_timer(), None);
 
-        let trigger_time = clock.trigger_time();
+        let cycle_time = clock.cycle_time();
         driver.register_timer(
             NodeIndex::from(1),
-            trigger_time.instant + Duration::from_millis(500),
+            cycle_time.now() + Duration::from_millis(500),
         );
 
         // Should now return the timer time
-        let expected_time = trigger_time.instant + Duration::from_millis(500);
+        let expected_time = cycle_time.now() + Duration::from_millis(500);
         assert_eq!(driver.next_timer(), Some(expected_time));
     }
 }

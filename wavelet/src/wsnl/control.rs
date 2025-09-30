@@ -1,7 +1,7 @@
 //! # Control Flow Nodes
 //!
 //! Nodes that manage data routing, switching, and flow control within the execution graph.
-//! These wsnl provide dynamic routing capabilities and conditional data flow patterns.
+//! These nodes provide dynamic routing capabilities and conditional data flow patterns.
 
 use crate::Control;
 use crate::channel::{Sender, TryReceiveError};
@@ -11,9 +11,9 @@ use std::collections::HashMap;
 use std::hash::Hash;
 use std::rc::Rc;
 
-/// A dynamic router that distributes items to different output wsnl based on routing keys.
+/// A dynamic router that distributes items to different output nodes based on routing keys.
 ///
-/// The Router maintains a cache of output wsnl, creating them on-demand as new routing
+/// The Router maintains a cache of output nodes, creating them on-demand as new routing
 /// keys are encountered. Each output node receives only items that match its key.
 pub struct Router<K: Eq + Hash, T: 'static> {
     parent: Option<RawHandle>,
@@ -34,14 +34,14 @@ impl<K: Clone + Eq + Hash + 'static, T: 'static> Router<K, T> {
     /// Otherwise, creates a new output node and caches it for future use.
     ///
     /// # Arguments
-    /// * `executor` - The executor to create new wsnl in
+    /// * `executor` - The executor to create new nodes in
     /// * `key` - The routing key to get/create a node for
     ///
     /// # Returns
     /// A node that will receive items matching the routing key
     ///
     /// # Node Lifecycle
-    /// - Output wsnl are automatically cleaned up when dropped
+    /// - Output nodes are automatically cleaned up when dropped
     /// - WeakNode references prevent memory leaks if outputs are dropped
     /// - Router maintains epoch tracking for proper data flow
     pub fn route(&self, executor: &mut Executor, key: K) -> Node<Vec<T>> {
@@ -169,13 +169,13 @@ pub fn route_stream_node<K: Clone + Eq + Hash, T: Clone>(
 /// * `route` - Function that extracts a routing key from each item
 ///
 /// # Returns
-/// A router node that can create output wsnl via `route()` method
+/// A router node that can create output nodes via `route()` method
 ///
 /// # Behavior
 /// - Consumes all items from source using `drain()`
 /// - Routes each item to the appropriate output node based on key
-/// - Automatically clears output wsnl at cycle boundaries
-/// - Only schedules output wsnl that receive data
+/// - Automatically clears output nodes at cycle boundaries
+/// - Only schedules output nodes that receive data
 /// - Returns `Control::Unchanged` (routing is transparent)
 ///
 /// # Examples

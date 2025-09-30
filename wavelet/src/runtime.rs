@@ -1,7 +1,7 @@
 //! High-performance graph-based stream processing runtime.
 //!
 //! The `runtime` module provides the core execution engine for wavelet's cooperative
-//! stream processing model. Built around a computation graph where wsnl represent
+//! stream processing model. Built around a computation graph where nodes represent
 //! stream processors and edges define data dependencies, the runtime delivers
 //! deterministic, low-latency execution without the overhead of async runtimes
 //! or actor systems.
@@ -10,7 +10,7 @@
 //!
 //! ## Computation Model
 //! - **Nodes**: Stateful stream processors that transform data
-//! - **Relationships**: Define when wsnl should execute (`Trigger` vs `Observe`)
+//! - **Relationships**: Define when nodes should execute (`Trigger` vs `Observe`)
 //! - **Cooperative scheduling**: Nodes voluntarily yield control after processing
 //! - **Dependency ordering**: Execution follows graph topology (depth-first, scheduled first)
 //! - **Incremental computation**: Only recompute when dependencies actually change

@@ -1,4 +1,4 @@
-use crate::runtime::clock::{Clock, TriggerTime};
+use crate::runtime::clock::{Clock, CycleTime};
 use std::time::{Duration, Instant};
 use time::OffsetDateTime;
 
@@ -32,7 +32,7 @@ impl Interval {
 /// A clock that replays historical time by walking through a specified interval.
 ///
 /// The clock starts at the interval's start time and advances in fixed time steps
-/// until reaching the end of the interval. Each call to `trigger_time()` advances
+/// until reaching the end of the interval. Each call to `cycle_time()` advances
 /// the clock by one time step.
 ///
 /// The instant component is adjusted so that the baseline instant represents the
@@ -126,8 +126,8 @@ impl HistoricalClock {
 }
 
 impl Clock for HistoricalClock {
-    fn trigger_time(&mut self) -> TriggerTime {
-        let result = TriggerTime::new(self.current_instant(), self.current_time);
+    fn cycle_time(&mut self) -> CycleTime {
+        let result = CycleTime::new(self.current_instant(), self.current_time);
 
         // Advance for next call (unless already exhausted)
         self.try_advance();
@@ -201,18 +201,18 @@ mod tests {
         let mut clock = HistoricalClock::with_time_step(interval, Duration::from_micros(100));
 
         // First call should return start time
-        let time1 = clock.trigger_time();
-        assert_eq!(time1.system_time, start);
+        let time1 = clock.cycle_time();
+        assert_eq!(time1.unix_time, start);
         assert!(!clock.is_exhausted());
 
         // Subsequent calls should advance
-        let time2 = clock.trigger_time();
-        assert_eq!(time2.system_time, start + Duration::from_micros(100));
+        let time2 = clock.cycle_time();
+        assert_eq!(time2.unix_time, start + Duration::from_micros(100));
 
         // Continue until exhausted
         let mut call_count = 2;
         while !clock.is_exhausted() && call_count < 100 {
-            clock.trigger_time();
+            clock.cycle_time();
             call_count += 1;
         }
 
@@ -229,14 +229,14 @@ mod tests {
 
         let mut clock = HistoricalClock::with_time_step(interval, step);
 
-        let time1 = clock.trigger_time();
-        let time2 = clock.trigger_time();
+        let time1 = clock.cycle_time();
+        let time2 = clock.cycle_time();
 
         // Instant should advance by exactly the time step
         assert_eq!(time2.instant.duration_since(time1.instant), step);
 
         // System time should also advance by the time step
-        assert_eq!(time2.system_time - time1.system_time, step);
+        assert_eq!(time2.unix_time - time1.unix_time, step);
     }
 
     #[test]
@@ -248,9 +248,9 @@ mod tests {
         let mut clock = HistoricalClock::new(interval);
 
         // Advance several steps
-        clock.trigger_time();
-        clock.trigger_time();
-        clock.trigger_time();
+        clock.cycle_time();
+        clock.cycle_time();
+        clock.cycle_time();
 
         assert_ne!(clock.current_time(), start);
 
@@ -270,21 +270,21 @@ mod tests {
         let mut clock = HistoricalClock::with_time_step(interval, step);
 
         // Should get exactly 2 calls before exhaustion
-        let time1 = clock.trigger_time(); // 0μs
+        let time1 = clock.cycle_time(); // 0μs
         assert!(!clock.is_exhausted());
-        assert_eq!(time1.system_time, start);
+        assert_eq!(time1.unix_time, start);
 
-        let time2 = clock.trigger_time(); // 100μs
+        let time2 = clock.cycle_time(); // 100μs
         assert!(!clock.is_exhausted());
-        assert_eq!(time2.system_time, start + Duration::from_micros(100));
+        assert_eq!(time2.unix_time, start + Duration::from_micros(100));
 
-        let time3 = clock.trigger_time(); // 200μs
+        let time3 = clock.cycle_time(); // 200μs
         assert!(!clock.is_exhausted()); // Next step is be 300μs which >= 250μs, so return end time
-        assert_eq!(time3.system_time, start + Duration::from_micros(200));
+        assert_eq!(time3.unix_time, start + Duration::from_micros(200));
 
-        let time3 = clock.trigger_time();
+        let time3 = clock.cycle_time();
         assert!(clock.is_exhausted()); // Should be exhausted now
-        assert_eq!(time3.system_time, start + Duration::from_micros(250)); // End time
+        assert_eq!(time3.unix_time, start + Duration::from_micros(250)); // End time
     }
 
     #[test]
@@ -296,16 +296,16 @@ mod tests {
 
         let mut clock = HistoricalClock::with_time_step(interval, step);
 
-        let time1 = clock.trigger_time();
+        let time1 = clock.cycle_time();
         assert!(!clock.is_exhausted());
 
         // Further calls shouldn't change anything
-        let time2 = clock.trigger_time();
-        assert_ne!(time1.system_time, time2.system_time);
+        let time2 = clock.cycle_time();
+        assert_ne!(time1.unix_time, time2.unix_time);
         assert_ne!(time1.instant, time2.instant);
 
-        let time3 = clock.trigger_time();
-        assert_eq!(time2.system_time, time3.system_time);
+        let time3 = clock.cycle_time();
+        assert_eq!(time2.unix_time, time3.unix_time);
         assert_eq!(time2.instant, time3.instant);
     }
 }

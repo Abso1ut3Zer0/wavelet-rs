@@ -36,14 +36,14 @@ impl<S: Source> IoSource<S> {
 /// Manages I/O event registration and polling for the runtime.
 ///
 /// The `IoDriver` integrates `mio` with the graph runtime, providing:
-/// - **Source registration**: Associate I/O sources with specific wsnl
+/// - **Source registration**: Associate I/O sources with specific nodes
 /// - **Event polling**: Check for ready I/O events during runtime cycles
-/// - **Automatic scheduling**: Ready wsnl are automatically added to the scheduler
+/// - **Automatic scheduling**: Ready nodes are automatically added to the scheduler
 /// - **Token management**: Uses a `Slab` allocator for efficient token reuse
 ///
 /// # Architecture
 /// Uses `mio::Poll` for cross-platform I/O event notification and a `Slab<NodeIndex>`
-/// to map event tokens back to the wsnl that should be scheduled. This provides
+/// to map event tokens back to the nodes that should be scheduled. This provides
 /// O(1) token allocation/deallocation and efficient event dispatch.
 pub struct IoDriver {
     /// The main event polling mechanism
@@ -123,10 +123,10 @@ impl IoDriver {
         self.waker.clone()
     }
 
-    /// Polls for I/O events and schedules ready wsnl.
+    /// Polls for I/O events and schedules ready nodes.
     ///
     /// Checks for ready I/O events up to the specified timeout, then schedules
-    /// any wsnl associated with ready sources. Uses epoch-based deduplication
+    /// any nodes associated with ready sources. Uses epoch-based deduplication
     /// to prevent scheduling the same node multiple times per cycle.
     #[inline(always)]
     pub(crate) fn poll(
@@ -295,7 +295,7 @@ mod tests {
         let mut scheduler = Scheduler::new();
         scheduler.resize(5); // Support depth up to 5
 
-        // Add some wsnl to the graph with different depths
+        // Add some nodes to the graph with different depths
         let node1_ctx = NodeContext::new(
             Box::new(|_| Control::Unchanged), // Dummy closure
             1,                                // depth
@@ -308,7 +308,7 @@ mod tests {
         let node1_idx = graph.add_node(node1_ctx);
         let node2_idx = graph.add_node(node2_ctx);
 
-        // Register I/O sources for these wsnl
+        // Register I/O sources for these nodes
         let listener1 = create_unique_source(8010)?;
         let listener2 = create_unique_source(8011)?;
 
@@ -443,7 +443,7 @@ mod integration_tests {
         );
         assert_eq!(scheduled_node.unwrap(), node_idx);
 
-        // No more wsnl should be scheduled
+        // No more nodes should be scheduled
         assert!(scheduler.pop().is_none());
 
         Ok(())
@@ -464,7 +464,7 @@ mod integration_tests {
         let addr1 = listener1.local_addr()?;
         let addr2 = listener2.local_addr()?;
 
-        // Register both with different wsnl
+        // Register both with different nodes
         let node1_ctx = NodeContext::new(Box::new(|_| Control::Unchanged), 1);
         let node2_ctx = NodeContext::new(Box::new(|_| Control::Unchanged), 2);
         let node1_idx = graph.add_node(node1_ctx);
@@ -491,7 +491,7 @@ mod integration_tests {
             1,
         )?;
 
-        // Should have scheduled both wsnl (order may vary)
+        // Should have scheduled both nodes (order may vary)
         let mut scheduled = vec![];
         while let Some(node) = scheduler.pop() {
             scheduled.push(node);

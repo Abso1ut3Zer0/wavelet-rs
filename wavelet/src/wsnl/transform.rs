@@ -1,7 +1,7 @@
 //! # Stream Transform Nodes
 //!
-//! Transform wsnl process collections of items, applying operations like filtering,
-//! deduplication, and accumulation. All transform wsnl operate on `Node<Vec<T>>` inputs
+//! Transform nodes process collections of items, applying operations like filtering,
+//! deduplication, and accumulation. All transform nodes operate on `Node<Vec<T>>` inputs
 //! and provide different output types based on the transformation.
 
 use crate::Control;
