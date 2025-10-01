@@ -20,6 +20,22 @@ pub struct TimerSource {
     id: usize,
 }
 
+impl TimerSource {
+    pub const fn deadline(&self) -> Instant {
+        self.when
+    }
+
+    #[inline(always)]
+    pub fn has_expired(&self, now: Instant) -> bool {
+        self.when >= now
+    }
+
+    #[inline(always)]
+    pub fn is_registered(&self, driver: &TimerDriver) -> bool {
+        driver.contains(self)
+    }
+}
+
 /// Manages timer registration and expiration for the runtime.
 ///
 /// The `TimerDriver` provides time-based node scheduling using:
@@ -48,6 +64,13 @@ impl TimerDriver {
             timers: BTreeMap::new(),
             sequence: 0,
         }
+    }
+
+    /// Helper method to determine if a given timer
+    /// is registered into the timer driver.
+    #[inline(always)]
+    pub(crate) fn contains(&self, source: &TimerSource) -> bool {
+        self.timers.contains_key(source)
     }
 
     /// Returns the `Instant` when the next timer will expire, if any.

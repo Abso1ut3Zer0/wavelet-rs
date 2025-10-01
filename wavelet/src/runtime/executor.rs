@@ -82,6 +82,10 @@ impl<'a> ExecutionContext<'a> {
         }
     }
 
+    pub const fn driver(&mut self) -> &mut EventDriver {
+        self.event_driver
+    }
+
     /// Registers an I/O source to receive events for the specified node.
     #[inline(always)]
     pub fn register_io<S: Source>(
