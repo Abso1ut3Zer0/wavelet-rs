@@ -7,7 +7,8 @@ use crate::runtime::{CycleFn, Notifier};
 use crate::{Control, Relationship};
 use petgraph::prelude::NodeIndex;
 use std::cell::UnsafeCell;
-use std::collections::HashSet;
+use std::collections::HashMap;
+use std::collections::hash_map::Entry;
 use std::io;
 use std::rc::{Rc, Weak};
 
@@ -567,7 +568,7 @@ impl<T: 'static> Drop for NodeInner<T> {
 pub struct NodeBuilder<T: 'static> {
     data: T,
     name: Option<String>,
-    parents: HashSet<(NodeIndex, u32, Relationship)>,
+    parents: HashMap<(NodeIndex, u32), Relationship>,
     on_init: Option<Box<dyn FnMut(&mut Executor, &mut T, NodeIndex) + 'static>>,
     on_drop: Option<OnDrop<T>>,
     allow_panic: bool,
@@ -578,7 +579,7 @@ impl<T: 'static> NodeBuilder<T> {
         Self {
             data,
             name: None,
-            parents: HashSet::new(),
+            parents: HashMap::new(),
             on_init: None,
             on_drop: None,
             allow_panic: false,
@@ -598,6 +599,11 @@ impl<T: 'static> NodeBuilder<T> {
     /// graph construction. The child node's depth will be calculated as the
     /// maximum parent depth + 1.
     ///
+    /// Note: we allow multiple relationships to the same parent, but in a way
+    /// that does not break the correct dispatching relationship. For example,
+    /// if any relationship is trigger, it will only insert a trigger relationship
+    /// into the graph to ensure this node is triggered on that parent's mutation.
+    ///
     /// # Parameters
     /// - `parent`: The node this new node depends on
     /// - `relationship`: How this node should react to parent changes
@@ -607,14 +613,17 @@ impl<T: 'static> NodeBuilder<T> {
         parent: &N,
         relationship: Relationship,
     ) -> Self {
-        assert!(
-            !self
-                .parents
-                .contains(&(parent.index(), parent.depth(), relationship)),
-            "cannot add duplicate relationship"
-        );
-        self.parents
-            .insert((parent.index(), parent.depth(), relationship));
+        let entry = self.parents.entry((parent.index(), parent.depth()));
+        match entry {
+            Entry::Occupied(mut occupied) => {
+                if relationship.is_trigger() {
+                    occupied.insert(relationship);
+                }
+            }
+            Entry::Vacant(vacant) => {
+                vacant.insert(relationship);
+            }
+        }
         self
     }
 
@@ -767,7 +776,7 @@ impl<T: 'static> NodeBuilder<T> {
         let depth = self
             .parents
             .iter()
-            .map(|(_, depth, _)| depth)
+            .map(|((_, depth), _)| depth)
             .max()
             .map(|d| d + 1)
             .unwrap_or(0);
@@ -809,7 +818,7 @@ impl<T: 'static> NodeBuilder<T> {
             inner.index = idx;
             inner.depth = depth;
 
-            self.parents.iter().for_each(|(parent, _, relationship)| {
+            self.parents.iter().for_each(|((parent, _), relationship)| {
                 executor.graph().add_edge(*parent, idx, *relationship);
             });
 
@@ -936,7 +945,7 @@ impl<T: 'static> NodeBuilder<T> {
         let depth = self
             .parents
             .iter()
-            .map(|(_, depth, _)| depth)
+            .map(|((_, depth), _)| depth)
             .max()
             .map(|d| d + 1)
             .unwrap_or(0);
@@ -981,7 +990,7 @@ impl<T: 'static> NodeBuilder<T> {
             inner.index = idx;
             inner.depth = depth;
 
-            self.parents.iter().for_each(|(parent, _, relationship)| {
+            self.parents.iter().for_each(|((parent, _), relationship)| {
                 executor.graph().add_edge(*parent, idx, *relationship);
             });
 
@@ -1024,7 +1033,7 @@ impl<T: 'static> NodeBuilder<T> {
         let depth = self
             .parents
             .iter()
-            .map(|(_, depth, _)| depth)
+            .map(|((_, depth), _)| depth)
             .max()
             .map(|d| d + 1)
             .unwrap_or(0);
@@ -1059,7 +1068,7 @@ impl<T: 'static> NodeBuilder<T> {
         inner.index = idx;
         inner.depth = depth;
 
-        self.parents.iter().for_each(|(parent, _, relationship)| {
+        self.parents.iter().for_each(|((parent, _), relationship)| {
             executor.graph().add_edge(*parent, idx, *relationship);
         });
 
@@ -1088,5 +1097,45 @@ mod tests {
         let _cloned = std::hint::black_box(node.clone());
         let exclusive = node.upgrade();
         assert!(exclusive.is_none());
+    }
+
+    #[test]
+    fn test_relationships() {
+        let mut executor = Executor::new();
+        let parent = NodeBuilder::new(()).build(&mut executor, |_, _| Control::Unchanged);
+        let parent_idx = parent.index();
+        let parent_depth = parent.depth();
+
+        let builder = NodeBuilder::new(23);
+
+        // initial relationship
+        let builder = builder.add_relationship(&parent, Relationship::Observe);
+        assert_eq!(builder.parents.len(), 1);
+        let relationship = builder.parents.get(&(parent_idx, parent_depth)).unwrap();
+        assert!(relationship.is_observe());
+
+        // add same relationship
+        let builder = builder.add_relationship(&parent, Relationship::Observe);
+        assert_eq!(builder.parents.len(), 1);
+        let relationship = builder.parents.get(&(parent_idx, parent_depth)).unwrap();
+        assert!(relationship.is_observe());
+
+        // turn relationship into a trigger
+        let builder = builder.add_relationship(&parent, Relationship::Trigger);
+        assert_eq!(builder.parents.len(), 1);
+        let relationship = builder.parents.get(&(parent_idx, parent_depth)).unwrap();
+        assert!(relationship.is_trigger());
+
+        // re-add trigger relationship
+        let builder = builder.add_relationship(&parent, Relationship::Trigger);
+        assert_eq!(builder.parents.len(), 1);
+        let relationship = builder.parents.get(&(parent_idx, parent_depth)).unwrap();
+        assert!(relationship.is_trigger());
+
+        // add another relationship as observe, which still keeps trigger
+        let builder = builder.add_relationship(&parent, Relationship::Observe);
+        assert_eq!(builder.parents.len(), 1);
+        let relationship = builder.parents.get(&(parent_idx, parent_depth)).unwrap();
+        assert!(relationship.is_trigger());
     }
 }
