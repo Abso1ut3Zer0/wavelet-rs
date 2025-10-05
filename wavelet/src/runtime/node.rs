@@ -599,6 +599,11 @@ impl<T: 'static> NodeBuilder<T> {
     /// graph construction. The child node's depth will be calculated as the
     /// maximum parent depth + 1.
     ///
+    /// Note: we allow multiple relationships to the same parent, but in a way
+    /// that does not break the correct dispatching relationship. For example,
+    /// if any relationship is trigger, it will only insert a trigger relationship
+    /// into the graph to ensure this node is triggered on that parent's mutation.
+    ///
     /// # Parameters
     /// - `parent`: The node this new node depends on
     /// - `relationship`: How this node should react to parent changes
