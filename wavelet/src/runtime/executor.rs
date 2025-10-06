@@ -316,7 +316,7 @@ impl Executor {
     ///
     /// Used by nodes to register themselves for cleanup when dropped.
     /// The garbage collector coordinates deferred removal after cycle completion.
-    pub(crate) fn garbage_collector(&mut self) -> GarbageCollector {
+    pub fn garbage_collector(&mut self) -> GarbageCollector {
         self.gc.clone()
     }
 
