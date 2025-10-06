@@ -1,7 +1,12 @@
 use crate::Control;
+use crate::prelude::{CycleTime, EventDriver, ExecutionContext, Scheduler, SpawnFn};
 use crate::runtime::{Executor, Node, NodeBuilder, Notifier, TestRuntime};
-use std::cell::RefCell;
+use petgraph::graph::NodeIndex;
+use std::cell::{RefCell, UnsafeCell};
+use std::collections::VecDeque;
 use std::rc::Rc;
+use std::time::Instant;
+use time::OffsetDateTime;
 
 pub struct Push<T: 'static> {
     inner: Rc<RefCell<PushInner<T>>>,
@@ -94,6 +99,50 @@ pub fn push_node<T: Default + 'static>(executor: &mut Executor, data: T) -> (Nod
             }),
         push,
     )
+}
+
+pub struct MockContextGenerator {
+    event_driver: EventDriver,
+    scheduler: UnsafeCell<Scheduler>,
+    deferred_spawns: VecDeque<SpawnFn>,
+    current: NodeIndex,
+    cycle_time: CycleTime,
+    epoch: usize,
+}
+
+impl MockContextGenerator {
+    pub fn new() -> Self {
+        Self {
+            event_driver: EventDriver::new(),
+            scheduler: UnsafeCell::new(Scheduler::new()),
+            deferred_spawns: VecDeque::new(),
+            current: Default::default(),
+            cycle_time: CycleTime::new(Instant::now(), OffsetDateTime::now_utc()),
+            epoch: 0,
+        }
+    }
+
+    pub fn context(&mut self) -> ExecutionContext<'_> {
+        ExecutionContext::new(
+            &mut self.event_driver,
+            &self.scheduler,
+            &mut self.deferred_spawns,
+            self.cycle_time.clone(),
+            self.epoch,
+        )
+    }
+
+    pub fn set_current(&mut self, node_index: NodeIndex) {
+        self.current = node_index;
+    }
+
+    pub fn set_cycle_time(&mut self, cycle_time: CycleTime) {
+        self.cycle_time = cycle_time;
+    }
+
+    pub fn advance_epoch(&mut self) {
+        self.epoch += 1;
+    }
 }
 
 #[cfg(test)]

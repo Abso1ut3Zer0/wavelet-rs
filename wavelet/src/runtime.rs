@@ -170,6 +170,7 @@ pub use event_driver::*;
 pub use executor::*;
 pub use graph::*;
 pub use node::*;
+pub use scheduler::*;
 
 /// Execution mode for the real-time runtime.
 ///

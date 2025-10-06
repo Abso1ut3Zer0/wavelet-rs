@@ -18,7 +18,7 @@ use std::time::{Duration, Instant};
 
 const BUFFER_CAPACITY: usize = 32;
 
-type SpawnFn = Box<dyn FnOnce(&mut Executor) + 'static>;
+pub type SpawnFn = Box<dyn FnOnce(&mut Executor) + 'static>;
 
 /// Indicates whether the executor should continue running or terminate.
 ///
@@ -65,7 +65,7 @@ pub struct ExecutionContext<'a> {
 
 impl<'a> ExecutionContext<'a> {
     /// Creates a new execution context (internal use only).
-    pub(crate) fn new(
+    pub fn new(
         event_driver: &'a mut EventDriver,
         scheduler: &'a UnsafeCell<Scheduler>,
         deferred_spawns: &'a mut VecDeque<SpawnFn>,
