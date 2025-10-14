@@ -27,7 +27,7 @@ impl TimerSource {
 
     #[inline(always)]
     pub fn has_expired(&self, now: Instant) -> bool {
-        self.when >= now
+        self.when < now
     }
 
     #[inline(always)]
