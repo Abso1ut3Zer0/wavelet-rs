@@ -168,7 +168,7 @@ impl<T> Channel<T> {
 #[cfg(test)]
 mod tests {
     use crate::Control;
-    use crate::channel::{Receiver, TryReceiveError};
+    use crate::channel::{Receiver, TryReceiveError, TrySendError};
     use crate::prelude::{Executor, TestClock};
     use crate::runtime::NodeBuilder;
     use std::time::Duration;
@@ -510,5 +510,139 @@ mod tests {
         executor.cycle(&mut clock, Some(Duration::ZERO)).unwrap();
         assert!(executor.has_mutated(&node));
         assert_eq!(*node.borrow(), "1");
+    }
+
+    // spurious wakeups are normal, this is just to examine them
+    #[ignore]
+    #[test]
+    fn test_single_producer_spurious_wakeup() {
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+        use std::thread;
+        use std::time::{Duration, Instant};
+
+        let mut executor = Executor::new();
+        let mut clock = TestClock::new();
+
+        // The key metric: how many times the node wakes up to find nothing
+        let empty_wakeups = Arc::new(AtomicUsize::new(0));
+        let successful_receives = Arc::new(AtomicUsize::new(0));
+        let messages_sent = Arc::new(AtomicUsize::new(0));
+        let still_sending = Arc::new(AtomicBool::new(true));
+
+        let empty = empty_wakeups.clone();
+        let success = successful_receives.clone();
+
+        let (_node, tx) = NodeBuilder::new(0usize)
+            .build_with_channel(&mut executor, 64, move |state, _ctx, rx| {
+                let mut got_any = false;
+
+                // Try to receive messages
+                for _ in 0..16 {
+                    // Process up to 16 messages per cycle
+                    match rx.try_receive() {
+                        Ok(value) => {
+                            got_any = true;
+                            // Verify sequential ordering from single producer
+                            assert_eq!(value, *state, "Expected {}, got {}", *state, value);
+                            *state += 1;
+                            success.fetch_add(1, Ordering::Relaxed);
+                        }
+                        Err(TryReceiveError::Empty) => {
+                            break;
+                        }
+                        Err(TryReceiveError::ChannelClosed) => {
+                            break;
+                        }
+                    }
+                }
+
+                // THE BUG: If we were woken up but got nothing, that's wrong!
+                if !got_any {
+                    empty.fetch_add(1, Ordering::Relaxed);
+                    println!("BUG at message {}: Node woke but channel empty!", *state);
+                }
+
+                Control::Unchanged
+            })
+            .unwrap();
+
+        let sent = messages_sent.clone();
+        let running = still_sending.clone();
+
+        // Single producer thread sending sequential messages
+        let sender = thread::spawn(move || {
+            for i in 0..10000 {
+                // Send sequential numbers
+                loop {
+                    match tx.try_send(i) {
+                        Ok(_) => {
+                            sent.fetch_add(1, Ordering::Relaxed);
+                            break;
+                        }
+                        Err(TrySendError::ChannelFull(_)) => {
+                            // Channel full, yield and retry
+                            thread::yield_now();
+                            continue;
+                        }
+                        Err(TrySendError::ChannelClosed(_)) => {
+                            return;
+                        }
+                    }
+                }
+
+                // Vary the timing slightly
+                if i % 100 == 0 {
+                    thread::yield_now();
+                }
+            }
+            running.store(false, Ordering::Relaxed);
+        });
+
+        // Run executor on main thread
+        let start = Instant::now();
+        let mut cycles = 0;
+
+        while still_sending.load(Ordering::Relaxed)
+            || successful_receives.load(Ordering::Relaxed) < messages_sent.load(Ordering::Relaxed)
+        {
+            executor.cycle(&mut clock, Some(Duration::ZERO)).unwrap();
+            cycles += 1;
+
+            // Occasionally yield to create scheduling variance
+            if cycles % 50 == 0 {
+                thread::yield_now();
+            }
+
+            if start.elapsed() > Duration::from_secs(5) {
+                println!("Timeout!");
+                break;
+            }
+        }
+
+        sender.join().unwrap();
+
+        // Final drain
+        for _ in 0..10 {
+            executor.cycle(&mut clock, Some(Duration::ZERO)).unwrap();
+        }
+
+        let empty = empty_wakeups.load(Ordering::Relaxed);
+        let success = successful_receives.load(Ordering::Relaxed);
+        let sent = messages_sent.load(Ordering::Relaxed);
+
+        println!(
+            "Sent: {}, Received: {}, Empty wakeups: {}",
+            sent, success, empty
+        );
+        println!("Ran {} cycles in {:?}", cycles, start.elapsed());
+
+        // Critical assertion: should NEVER wake up to empty channel
+        assert_eq!(
+            empty, 0,
+            "Memory ordering bug detected: {} empty wakeups",
+            empty
+        );
+        assert_eq!(sent, success, "Lost {} messages", sent - success);
     }
 }
