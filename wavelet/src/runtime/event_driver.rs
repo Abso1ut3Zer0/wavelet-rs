@@ -8,15 +8,14 @@ pub use crate::runtime::event_driver::yield_driver::*;
 use crate::runtime::graph::Graph;
 use crate::runtime::scheduler::Scheduler;
 use crate::runtime::{Clock, CycleTime};
-use ahash::{HashSet, HashSetExt};
+use crossbeam_queue::ArrayQueue;
+use derive_builder::Builder;
 use petgraph::prelude::NodeIndex;
 use std::io;
 use std::sync::Arc;
 use std::time::Duration;
 
-const MINIMUM_TIMER_PRECISION: std::time::Duration = std::time::Duration::from_millis(1);
-const IO_CAPACITY: usize = 1024;
-const EVENT_CAPACITY: usize = 1024;
+const MINIMUM_TIMER_PRECISION: Duration = Duration::from_millis(1);
 
 /// A handle for waking a node from external threads or contexts.
 ///
@@ -24,26 +23,30 @@ const EVENT_CAPACITY: usize = 1024;
 /// from outside the main event loop. Useful for integrating with external
 /// libraries, user input, or cross-thread communication.
 pub struct Notifier {
-    raw_events: Arc<spin::Mutex<HashSet<NodeIndex>>>,
+    notifications: Arc<ArrayQueue<NodeIndex>>,
     waker: Arc<mio::Waker>,
     node_index: NodeIndex,
 }
 
 impl Clone for Notifier {
     fn clone(&self) -> Self {
-        Self::new(self.raw_events.clone(), self.waker.clone(), self.node_index)
+        Self::new(
+            self.notifications.clone(),
+            self.waker.clone(),
+            self.node_index,
+        )
     }
 }
 
 impl Notifier {
     /// Creates a new notifier handle (internal use only).
     const fn new(
-        raw_events: Arc<spin::Mutex<HashSet<NodeIndex>>>,
+        notifications: Arc<ArrayQueue<NodeIndex>>,
         waker: Arc<mio::Waker>,
         node_index: NodeIndex,
     ) -> Self {
         Self {
-            raw_events,
+            notifications,
             waker,
             node_index,
         }
@@ -53,11 +56,25 @@ impl Notifier {
     ///
     /// This method is thread-safe and can be called from any thread.
     /// The node will be scheduled on the next polling cycle.
+    ///
+    /// Note: we assume that notification events will coalesce,
+    /// so we only attempt to write to the notification queue.
     #[inline(always)]
     pub fn notify(&self) {
-        self.raw_events.lock().insert(self.node_index);
+        self.notifications.push(self.node_index).ok();
         self.waker.wake().ok();
     }
+}
+
+/// Driver configuration options.
+#[derive(Builder)]
+pub struct EventDriverConfig {
+    #[builder(default = 256)]
+    pub notification_capacity: usize,
+    #[builder(default = 1024)]
+    pub io_capacity: usize,
+    #[builder(default = 16)]
+    pub poll_limit: usize,
 }
 
 /// Unified event management system that coordinates all event sources.
@@ -80,23 +97,32 @@ pub struct EventDriver {
     /// Processes immediate yield requests
     yield_driver: YieldDriver,
 
-    /// Tracks deduplicated raw events that have been received
-    raw_events: Arc<spin::Mutex<HashSet<NodeIndex>>>,
+    /// Notification queue tracking events on node indices
+    notifications: Arc<ArrayQueue<NodeIndex>>,
+
+    /// Poll limit for pulling node indices off of
+    /// the notifications queue
+    poll_limit: usize,
 }
 
 impl EventDriver {
     /// Creates a new event driver with default I/O capacity.
     pub(crate) fn new() -> Self {
-        Self::with_capacity(IO_CAPACITY)
+        Self::with_config(
+            EventDriverConfigBuilder::default()
+                .build()
+                .expect("expected default builder"),
+        )
     }
 
-    /// Creates a new event driver with the specified I/O event capacity.
-    pub(crate) fn with_capacity(capacity: usize) -> Self {
+    /// Creates a new event driver with the specified notification capacity.
+    pub(crate) fn with_config(cfg: EventDriverConfig) -> Self {
         Self {
-            io_driver: IoDriver::with_capacity(capacity),
+            io_driver: IoDriver::with_capacity(cfg.io_capacity),
             timer_driver: TimerDriver::new(),
             yield_driver: YieldDriver::new(),
-            raw_events: Arc::new(spin::Mutex::new(HashSet::with_capacity(EVENT_CAPACITY))),
+            notifications: Arc::new(ArrayQueue::new(cfg.notification_capacity)),
+            poll_limit: cfg.poll_limit,
         }
     }
 
@@ -118,7 +144,11 @@ impl EventDriver {
     /// Creates a new `Notifier` to inform the event driver of a raw event.
     #[inline(always)]
     pub fn register_notifier(&self, node_index: NodeIndex) -> Notifier {
-        Notifier::new(self.raw_events.clone(), self.io_driver.waker(), node_index)
+        Notifier::new(
+            self.notifications.clone(),
+            self.io_driver.waker(),
+            node_index,
+        )
     }
 
     /// Polls all event sources and schedules ready nodes.
@@ -140,13 +170,15 @@ impl EventDriver {
         timeout: Option<Duration>,
         epoch: usize,
     ) -> io::Result<CycleTime> {
-        {
-            let mut raw_events = self.raw_events.lock();
-            raw_events.drain().for_each(|node_idx| {
-                if let Some(depth) = graph.can_schedule(node_idx, epoch) {
-                    scheduler.schedule(node_idx, depth).ok();
+        for _ in 0..self.poll_limit {
+            match self.notifications.pop() {
+                None => break,
+                Some(node_idx) => {
+                    if let Some(depth) = graph.can_schedule(node_idx, epoch) {
+                        scheduler.schedule(node_idx, depth).ok();
+                    }
                 }
-            });
+            }
         }
 
         let cycle_time = clock.cycle_time();
