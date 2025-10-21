@@ -46,6 +46,7 @@
 //! ```
 
 pub mod control;
+pub mod logic;
 pub mod time;
 pub mod transform;
 pub mod util;
