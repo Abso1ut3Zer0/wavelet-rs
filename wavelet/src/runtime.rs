@@ -271,6 +271,14 @@ impl Runtime<PrecisionClock> {
         }
     }
 
+    pub fn with_config(cfg: EventDriverConfig, mode: ExecutionMode) -> Self {
+        Self {
+            executor: Executor::with_config(cfg),
+            clock: PrecisionClock::new(),
+            mode,
+        }
+    }
+
     pub fn run_forever(&mut self) {
         while let ExecutorState::Running = self
             .executor

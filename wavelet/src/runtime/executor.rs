@@ -6,7 +6,7 @@ use crate::runtime::garbage_collector::GarbageCollector;
 use crate::runtime::graph::Graph;
 use crate::runtime::node::Node;
 use crate::runtime::scheduler::{Scheduler, SchedulerError};
-use crate::runtime::{Clock, NodeHandle, Notifier};
+use crate::runtime::{Clock, EventDriverConfig, NodeHandle, Notifier};
 use enum_as_inner::EnumAsInner;
 use mio::Interest;
 use mio::event::Source;
@@ -254,6 +254,18 @@ impl Executor {
             graph: Graph::new(),
             scheduler: UnsafeCell::new(Scheduler::new()),
             event_driver: EventDriver::new(),
+            edge_buffer: Vec::with_capacity(BUFFER_CAPACITY),
+            deferred_spawns: VecDeque::new(),
+            gc: GarbageCollector::new(),
+            epoch: 0,
+        }
+    }
+
+    pub(crate) fn with_config(cfg: EventDriverConfig) -> Self {
+        Self {
+            graph: Graph::new(),
+            scheduler: UnsafeCell::new(Scheduler::new()),
+            event_driver: EventDriver::with_config(cfg),
             edge_buffer: Vec::with_capacity(BUFFER_CAPACITY),
             deferred_spawns: VecDeque::new(),
             gc: GarbageCollector::new(),
