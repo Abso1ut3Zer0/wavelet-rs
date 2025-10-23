@@ -1,4 +1,5 @@
 use crate::Control;
+use crate::prelude::ExecutionMode;
 use crate::runtime::clock::CycleTime;
 use crate::runtime::event_driver::YieldDriver;
 use crate::runtime::event_driver::{EventDriver, IoDriver, IoSource, TimerDriver, TimerSource};
@@ -249,11 +250,11 @@ pub struct Executor {
 }
 
 impl Executor {
-    pub(crate) fn new() -> Self {
+    pub(crate) fn new(mode: ExecutionMode) -> Self {
         Self {
             graph: Graph::new(),
             scheduler: UnsafeCell::new(Scheduler::new()),
-            event_driver: EventDriver::new(),
+            event_driver: EventDriver::new(mode),
             edge_buffer: Vec::with_capacity(BUFFER_CAPACITY),
             deferred_spawns: VecDeque::new(),
             gc: GarbageCollector::new(),
@@ -261,11 +262,11 @@ impl Executor {
         }
     }
 
-    pub(crate) fn with_config(cfg: EventDriverConfig) -> Self {
+    pub(crate) fn with_config(cfg: EventDriverConfig, mode: ExecutionMode) -> Self {
         Self {
             graph: Graph::new(),
             scheduler: UnsafeCell::new(Scheduler::new()),
-            event_driver: EventDriver::with_config(cfg),
+            event_driver: EventDriver::with_config(cfg, mode),
             edge_buffer: Vec::with_capacity(BUFFER_CAPACITY),
             deferred_spawns: VecDeque::new(),
             gc: GarbageCollector::new(),
@@ -509,13 +510,13 @@ mod tests {
 
     #[test]
     fn test_executor_creation() {
-        let executor = Executor::new();
+        let executor = Executor::new(ExecutionMode::Spin);
         assert_eq!(executor.epoch, 0);
     }
 
     #[test]
     fn test_basic_cycle_execution() {
-        let mut executor = Executor::new();
+        let mut executor = Executor::new(ExecutionMode::Spin);
         let mut clock = TestClock::new();
 
         // Create a simple node that increments a counter
@@ -546,7 +547,7 @@ mod tests {
 
     #[test]
     fn test_triggering_relationship() {
-        let mut executor = Executor::new();
+        let mut executor = Executor::new(ExecutionMode::Spin);
         let mut clock = TestClock::new();
 
         // Create parent node that mutates (returns true)
@@ -578,7 +579,7 @@ mod tests {
 
     #[test]
     fn test_observe_relationship_does_not_trigger() {
-        let mut executor = Executor::new();
+        let mut executor = Executor::new(ExecutionMode::Spin);
         let mut clock = TestClock::new();
 
         // Create parent node that mutates
@@ -610,7 +611,7 @@ mod tests {
 
     #[test]
     fn test_notifier_handling() {
-        let mut executor = Executor::new();
+        let mut executor = Executor::new(ExecutionMode::Spin);
         let mut clock = TestClock::new();
 
         // Create a node that will be triggered by I/O
@@ -651,7 +652,7 @@ mod tests {
 
     #[test]
     fn test_timer_event_handling() {
-        let mut executor = Executor::new();
+        let mut executor = Executor::new(ExecutionMode::Spin);
         let mut clock = TestClock::new();
 
         // Create a timer node that sets up its own recurring timer
@@ -685,7 +686,7 @@ mod tests {
 
     #[test]
     fn test_timer_not_expired_yet() {
-        let mut executor = Executor::new();
+        let mut executor = Executor::new(ExecutionMode::Spin);
         let mut clock = TestClock::new();
 
         // Create a node with the future timer
@@ -714,7 +715,7 @@ mod tests {
 
     #[test]
     fn test_multiple_cycles_increment_epoch() {
-        let mut executor = Executor::new();
+        let mut executor = Executor::new(ExecutionMode::Spin);
         let mut clock = TestClock::new();
 
         assert_eq!(executor.epoch, 0);
@@ -734,7 +735,7 @@ mod tests {
 
     #[test]
     fn test_chain_of_triggering_nodes() {
-        let mut executor = Executor::new();
+        let mut executor = Executor::new(ExecutionMode::Spin);
         let mut clock = TestClock::new();
 
         let call_order = Rc::new(RefCell::new(Vec::new()));
@@ -780,7 +781,7 @@ mod tests {
 
     #[test]
     fn test_yield_driver_integration() {
-        let mut executor = Executor::new();
+        let mut executor = Executor::new(ExecutionMode::Spin);
         let mut clock = TestClock::new();
 
         let node = NodeBuilder::new(0)
@@ -802,7 +803,7 @@ mod tests {
 
     #[test]
     fn test_termination_state() {
-        let mut executor = Executor::new();
+        let mut executor = Executor::new(ExecutionMode::Spin);
         let mut clock = TestClock::new();
 
         let _node = NodeBuilder::new(0)
@@ -820,7 +821,7 @@ mod tests {
 
     #[test]
     fn test_on_drop() {
-        let mut executor = Executor::new();
+        let mut executor = Executor::new(ExecutionMode::Spin);
         let flag = Rc::new(Cell::new(false));
         let node = NodeBuilder::new(flag.clone())
             .on_drop(|data| {
@@ -840,7 +841,7 @@ mod tests {
 
     #[test]
     fn test_on_drop_executor_exit() {
-        let mut executor = Executor::new();
+        let mut executor = Executor::new(ExecutionMode::Spin);
         let flag = Rc::new(Cell::new(false));
         let node = NodeBuilder::new(flag.clone())
             .on_drop(|data| {
@@ -859,7 +860,7 @@ mod tests {
 
     #[test]
     fn test_garbage_collection() {
-        let mut executor = Executor::new();
+        let mut executor = Executor::new(ExecutionMode::Spin);
         let mut clock = TestClock::new();
 
         let gc_count = Rc::new(Cell::new(0));
@@ -902,7 +903,7 @@ mod tests {
 
     #[test]
     fn test_node_spawn_with_cleanup() {
-        let mut executor = Executor::new();
+        let mut executor = Executor::new(ExecutionMode::Spin);
         let mut clock = TestClock::new();
 
         let spawned = Rc::new(Cell::new(false));
@@ -940,7 +941,7 @@ mod tests {
 
     #[test]
     fn test_node_spawn_with_cleanup_on_panic() {
-        let mut executor = Executor::new();
+        let mut executor = Executor::new(ExecutionMode::Spin);
         let mut clock = TestClock::new();
 
         let spawned = Rc::new(Cell::new(false));
@@ -980,7 +981,7 @@ mod tests {
 
     #[test]
     fn test_garbage_collection_on_poisoned() {
-        let mut executor = Executor::new();
+        let mut executor = Executor::new(ExecutionMode::Spin);
         let mut clock = TestClock::new();
 
         let gc_count = Rc::new(Cell::new(0));
@@ -1037,7 +1038,7 @@ mod tests {
 
     #[test]
     fn test_no_timeout() {
-        let mut executor = Executor::new();
+        let mut executor = Executor::new(ExecutionMode::Spin);
         let mut clock = TestClock::new();
 
         let node = NodeBuilder::new(0)

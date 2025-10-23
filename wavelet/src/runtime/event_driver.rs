@@ -2,6 +2,7 @@ mod io_driver;
 mod timer_driver;
 mod yield_driver;
 
+use crate::prelude::ExecutionMode;
 pub use crate::runtime::event_driver::io_driver::*;
 pub use crate::runtime::event_driver::timer_driver::*;
 pub use crate::runtime::event_driver::yield_driver::*;
@@ -108,20 +109,24 @@ pub struct EventDriver {
     /// Poll limit for pulling node indices off of
     /// the notifications queue
     poll_limit: usize,
+
+    /// Execution mode
+    mode: ExecutionMode,
 }
 
 impl EventDriver {
     /// Creates a new event driver with default I/O capacity.
-    pub(crate) fn new() -> Self {
+    pub(crate) fn new(mode: ExecutionMode) -> Self {
         Self::with_config(
             EventDriverConfigBuilder::default()
                 .build()
                 .expect("expected default builder"),
+            mode,
         )
     }
 
     /// Creates a new event driver with the specified notification capacity.
-    pub(crate) fn with_config(cfg: EventDriverConfig) -> Self {
+    pub(crate) fn with_config(cfg: EventDriverConfig, mode: ExecutionMode) -> Self {
         Self {
             io_driver: if cfg.io_enabled {
                 Some(IoDriver::with_capacity(cfg.io_capacity))
@@ -136,6 +141,7 @@ impl EventDriver {
             yield_driver: YieldDriver::new(),
             notifications: Arc::new(ArrayQueue::new(cfg.notification_capacity)),
             poll_limit: cfg.poll_limit,
+            mode,
         }
     }
 
@@ -238,7 +244,11 @@ impl EventDriver {
         // Poll I/O driver with computed timeout
         if let Some(ref mut driver) = self.io_driver {
             driver.poll(graph, scheduler, effective_timeout, epoch)?;
-            Ok(clock.cycle_time())
+
+            match self.mode {
+                ExecutionMode::Spin => Ok(cycle_time),
+                ExecutionMode::Park => Ok(clock.cycle_time()),
+            }
         } else {
             Ok(cycle_time)
         }

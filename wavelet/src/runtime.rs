@@ -222,7 +222,7 @@ impl<C: Clock> Runtime<C> {
 impl Runtime<TestClock> {
     pub fn new() -> Self {
         Self {
-            executor: Executor::new(),
+            executor: Executor::new(ExecutionMode::Spin),
             clock: TestClock::new(),
             mode: ExecutionMode::Spin,
         }
@@ -242,7 +242,7 @@ impl Runtime<TestClock> {
 impl Runtime<HistoricalClock> {
     pub fn new(interval: Interval) -> Self {
         Self {
-            executor: Executor::new(),
+            executor: Executor::new(ExecutionMode::Spin),
             clock: HistoricalClock::new(interval),
             mode: ExecutionMode::Spin,
         }
@@ -265,7 +265,7 @@ impl Runtime<HistoricalClock> {
 impl Runtime<PrecisionClock> {
     pub fn new(mode: ExecutionMode) -> Self {
         Self {
-            executor: Executor::new(),
+            executor: Executor::new(mode),
             clock: PrecisionClock::new(),
             mode,
         }
@@ -273,7 +273,7 @@ impl Runtime<PrecisionClock> {
 
     pub fn with_config(cfg: EventDriverConfig, mode: ExecutionMode) -> Self {
         Self {
-            executor: Executor::with_config(cfg),
+            executor: Executor::with_config(cfg, mode),
             clock: PrecisionClock::new(),
             mode,
         }

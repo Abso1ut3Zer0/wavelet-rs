@@ -1,5 +1,5 @@
 use crate::Control;
-use crate::prelude::{CycleTime, EventDriver, ExecutionContext, Scheduler, SpawnFn};
+use crate::prelude::{CycleTime, EventDriver, ExecutionContext, ExecutionMode, Scheduler, SpawnFn};
 use crate::runtime::{Executor, Node, NodeBuilder, Notifier, TestRuntime};
 use petgraph::graph::NodeIndex;
 use std::cell::{RefCell, UnsafeCell};
@@ -113,7 +113,7 @@ pub struct MockContextGenerator {
 impl MockContextGenerator {
     pub fn new() -> Self {
         Self {
-            event_driver: EventDriver::new(),
+            event_driver: EventDriver::new(ExecutionMode::Spin),
             scheduler: UnsafeCell::new(Scheduler::new()),
             deferred_spawns: VecDeque::new(),
             current: Default::default(),
