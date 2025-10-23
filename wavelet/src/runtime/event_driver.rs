@@ -62,6 +62,7 @@ impl Notifier {
     #[inline(always)]
     pub fn notify(&self) {
         self.notifications.push(self.node_index).ok();
+        std::sync::atomic::fence(std::sync::atomic::Ordering::Release);
         self.waker.as_ref().map(|waker| waker.wake().ok());
     }
 }
@@ -184,6 +185,10 @@ impl EventDriver {
         timeout: Option<Duration>,
         epoch: usize,
     ) -> io::Result<CycleTime> {
+        if self.io_driver.is_none() {
+            std::sync::atomic::fence(std::sync::atomic::Ordering::Acquire);
+        }
+
         for _ in 0..self.poll_limit {
             match self.notifications.pop() {
                 None => break,
