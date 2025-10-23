@@ -185,6 +185,9 @@ impl EventDriver {
         timeout: Option<Duration>,
         epoch: usize,
     ) -> io::Result<CycleTime> {
+        // Ensure notification queue updates are visible across threads
+        // before polling the notification queue. This has shown to reduce
+        // long tails on the scheduler.
         if self.io_driver.is_none() {
             std::sync::atomic::fence(std::sync::atomic::Ordering::Acquire);
         }
@@ -201,54 +204,43 @@ impl EventDriver {
         }
 
         let cycle_time = clock.cycle_time();
+
+        // Poll yield driver (always enabled)
         self.yield_driver.poll(graph, scheduler, epoch);
-        self.timer_driver
-            .as_mut()
-            .map(|driver| driver.poll(graph, scheduler, cycle_time.now(), epoch));
+
+        // Poll timer driver (if enabled)
+        if let Some(ref mut driver) = self.timer_driver {
+            driver.poll(graph, scheduler, cycle_time.now(), epoch);
+        }
+
+        // Early exit if work is ready or a zero timeout is specified
         if scheduler.has_pending_event() || timeout == Some(Duration::ZERO) {
-            self.io_driver
-                .as_mut()
-                .map(|driver| driver.poll(graph, scheduler, Some(Duration::ZERO), epoch))
-                .transpose()?;
+            if let Some(ref mut driver) = self.io_driver {
+                driver.poll(graph, scheduler, Some(Duration::ZERO), epoch)?;
+            }
             return Ok(cycle_time);
         }
 
-        let sleep_duration = self
+        // Calculate effective timeout
+        let timer_deadline = self
             .timer_driver
             .as_ref()
-            .map(|driver| driver.next_timer())
-            .flatten()
+            .and_then(|driver| driver.next_timer())
             .map(|instant| instant.saturating_duration_since(cycle_time.now()));
-        match (timeout, sleep_duration) {
-            (Some(timeout), Some(sleep_duration)) => {
-                let timeout = timeout.min(sleep_duration).max(MINIMUM_TIMER_PRECISION);
-                self.io_driver
-                    .as_mut()
-                    .map(|driver| driver.poll(graph, scheduler, Some(timeout), epoch))
-                    .transpose()?;
-                Ok(clock.cycle_time())
-            }
-            (Some(timeout), None) => {
-                self.io_driver
-                    .as_mut()
-                    .map(|driver| driver.poll(graph, scheduler, Some(timeout), epoch))
-                    .transpose()?;
-                Ok(clock.cycle_time())
-            }
-            (None, Some(sleep_duration)) => {
-                self.io_driver
-                    .as_mut()
-                    .map(|driver| driver.poll(graph, scheduler, Some(sleep_duration), epoch))
-                    .transpose()?;
-                Ok(clock.cycle_time())
-            }
-            (None, None) => {
-                self.io_driver
-                    .as_mut()
-                    .map(|driver| driver.poll(graph, scheduler, None, epoch))
-                    .transpose()?;
-                Ok(clock.cycle_time())
-            }
+
+        let effective_timeout = match (timeout, timer_deadline) {
+            (Some(t), Some(d)) => Some(t.min(d).max(MINIMUM_TIMER_PRECISION)),
+            (Some(t), None) => Some(t),
+            (None, Some(d)) => Some(d),
+            (None, None) => None,
+        };
+
+        // Poll I/O driver with computed timeout
+        if let Some(ref mut driver) = self.io_driver {
+            driver.poll(graph, scheduler, effective_timeout, epoch)?;
+            Ok(clock.cycle_time())
+        } else {
+            Ok(cycle_time)
         }
     }
 }
