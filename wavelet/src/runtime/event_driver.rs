@@ -203,7 +203,9 @@ impl EventDriver {
                 None => break,
                 Some(node_idx) => {
                     if let Some(depth) = graph.can_schedule(node_idx, epoch) {
-                        scheduler.schedule(node_idx, depth).ok();
+                        scheduler
+                            .schedule(node_idx, depth)
+                            .expect("failed to schedule node");
                     }
                 }
             }
@@ -221,33 +223,58 @@ impl EventDriver {
 
         // Early exit if work is ready or a zero timeout is specified
         if scheduler.has_pending_event() || timeout == Some(Duration::ZERO) {
-            if let Some(ref mut driver) = self.io_driver {
-                driver.poll(graph, scheduler, Some(Duration::ZERO), epoch)?;
-            }
-            return Ok(cycle_time);
+            return self.fast_poll(graph, scheduler, cycle_time, epoch);
         }
 
-        // Calculate effective timeout
-        let timer_deadline = self
-            .timer_driver
-            .as_ref()
-            .and_then(|driver| driver.next_timer())
-            .map(|instant| instant.saturating_duration_since(cycle_time.now()));
+        self.slow_poll(graph, scheduler, clock, cycle_time, timeout, epoch)
+    }
 
-        let effective_timeout = match (timeout, timer_deadline) {
-            (Some(t), Some(d)) => Some(t.min(d).max(MINIMUM_TIMER_PRECISION)),
-            (Some(t), None) => Some(t),
-            (None, Some(d)) => Some(d),
-            (None, None) => None,
+    #[inline(always)]
+    fn fast_poll(
+        &mut self,
+        graph: &mut Graph,
+        scheduler: &mut Scheduler,
+        cycle_time: CycleTime,
+        epoch: usize,
+    ) -> io::Result<CycleTime> {
+        if let Some(ref mut driver) = self.io_driver {
+            driver.poll(graph, scheduler, Some(Duration::ZERO), epoch)?;
+        }
+        Ok(cycle_time)
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn slow_poll(
+        &mut self,
+        graph: &mut Graph,
+        scheduler: &mut Scheduler,
+        clock: &mut impl Clock,
+        cycle_time: CycleTime,
+        timeout: Option<Duration>,
+        epoch: usize,
+    ) -> io::Result<CycleTime> {
+        // Calculate effective timeout
+        let effective_timeout = match (&self.timer_driver, timeout) {
+            (Some(timer), Some(t)) => timer
+                .next_timer()
+                .map(|deadline| {
+                    let d = deadline.saturating_duration_since(cycle_time.now());
+                    t.min(d).max(MINIMUM_TIMER_PRECISION)
+                })
+                .or(Some(t)),
+            (Some(timer), None) => timer
+                .next_timer()
+                .map(|deadline| deadline.saturating_duration_since(cycle_time.now())),
+            (None, t) => t,
         };
 
-        // Poll I/O driver with computed timeout
         if let Some(ref mut driver) = self.io_driver {
             driver.poll(graph, scheduler, effective_timeout, epoch)?;
-
-            match self.mode {
-                ExecutionMode::Spin => Ok(cycle_time),
-                ExecutionMode::Park => Ok(clock.cycle_time()),
+            if self.mode.is_park() && effective_timeout != Some(Duration::ZERO) {
+                Ok(clock.cycle_time())
+            } else {
+                Ok(cycle_time)
             }
         } else {
             Ok(cycle_time)
