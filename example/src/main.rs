@@ -3,9 +3,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 use tokio::select;
 use wavelet::Control;
-use wavelet::prelude::{ExecutionMode, NodeBuilder, RealtimeRuntime};
+use wavelet::prelude::{EventDriverConfigBuilder, ExecutionMode, NodeBuilder, RealtimeRuntime};
 
-const TOTAL_COUNT: usize = 10_000;
+const TOTAL_COUNT: usize = 500_000;
+const SLEEP_DURATION: std::time::Duration = std::time::Duration::from_micros(25);
+const IO_ENABLED: bool = false;
 
 #[allow(dead_code)]
 enum TestMode {
@@ -46,7 +48,11 @@ fn main() {
 fn run_wavelet() {
     let instant_queue = Arc::new(crossbeam_queue::ArrayQueue::<Instant>::new(1024));
 
-    let mut runtime = RealtimeRuntime::new(ExecutionMode::Spin);
+    let cfg = EventDriverConfigBuilder::default()
+        .io_enabled(IO_ENABLED)
+        .build()
+        .unwrap();
+    let mut runtime = RealtimeRuntime::with_config(cfg, ExecutionMode::Spin);
     let (order_book, inbound) = NodeBuilder::new(OrderBook::new())
         .build_with_channel(runtime.executor(), 1, |this, _, rx| {
             if let Ok(book) = rx.try_receive() {
@@ -136,15 +142,16 @@ fn run_wavelet() {
                 histogram.record(elapsed).unwrap();
                 count += 1;
 
-                if count % 1_000 == 0 {
+                if count % 10_000 == 0 {
                     let p50 = histogram.value_at_percentile(50.0);
                     let p75 = histogram.value_at_percentile(75.0);
                     let p95 = histogram.value_at_percentile(95.0);
                     let p99 = histogram.value_at_percentile(99.0);
                     let p999 = histogram.value_at_percentile(99.9);
+                    let p9999 = histogram.value_at_percentile(99.99);
                     println!(
-                        "{}: p50={} p75={} p95={} p99={} p999={}",
-                        count, p50, p75, p95, p99, p999
+                        "{}: p50={} p75={} p95={} p99={} p999={}, p9999={}",
+                        count, p50, p75, p95, p99, p999, p9999
                     );
                 }
             }
@@ -160,7 +167,7 @@ fn run_wavelet() {
             book.asks.push((101.0, 850.0));
 
             inbound.force_send(book).ok();
-            std::thread::sleep(std::time::Duration::from_millis(1));
+            std::thread::sleep(SLEEP_DURATION);
         }
     });
 
@@ -226,15 +233,16 @@ fn run_tokio_direct() {
                         histogram.record(elapsed).unwrap();
                         count += 1;
 
-                        if count % 1_000 == 0 {
+                        if count % 10_000 == 0 {
                             let p50 = histogram.value_at_percentile(50.0);
                             let p75 = histogram.value_at_percentile(75.0);
                             let p95 = histogram.value_at_percentile(95.0);
                             let p99 = histogram.value_at_percentile(99.0);
                             let p999 = histogram.value_at_percentile(99.9);
+                            let p9999 = histogram.value_at_percentile(99.99);
                             println!(
-                                "{}: p50={} p75={} p95={} p99={} p999={}",
-                                count, p50, p75, p95, p99, p999
+                                "{}: p50={} p75={} p95={} p99={} p999={}, p9999={}",
+                                count, p50, p75, p95, p99, p999, p9999
                             );
                         }
                     }
@@ -250,7 +258,7 @@ fn run_tokio_direct() {
                     book.asks.push((101.0, 850.0));
 
                     inbound.blocking_send(book).ok();
-                    std::thread::sleep(std::time::Duration::from_millis(1));
+                    std::thread::sleep(SLEEP_DURATION);
                 }
             });
 

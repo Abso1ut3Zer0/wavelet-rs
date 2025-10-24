@@ -1084,10 +1084,11 @@ impl<T: 'static> NodeBuilder<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::prelude::ExecutionMode;
 
     #[test]
     fn test_exclusive_node() {
-        let mut executor = Executor::new();
+        let mut executor = Executor::new(ExecutionMode::Spin);
         let node = NodeBuilder::new(23).build(&mut executor, |_, _| Control::Unchanged);
 
         let exclusive = node.upgrade();
@@ -1101,7 +1102,7 @@ mod tests {
 
     #[test]
     fn test_relationships() {
-        let mut executor = Executor::new();
+        let mut executor = Executor::new(ExecutionMode::Spin);
         let parent = NodeBuilder::new(()).build(&mut executor, |_, _| Control::Unchanged);
         let parent_idx = parent.index();
         let parent_depth = parent.depth();

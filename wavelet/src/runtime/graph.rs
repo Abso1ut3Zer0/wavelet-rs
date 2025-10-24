@@ -184,6 +184,7 @@ mod tests {
     use std::rc::Rc;
     use std::time::Instant;
     use time::OffsetDateTime;
+    use crate::prelude::ExecutionMode;
 
     fn create_test_node(call_count: Rc<Cell<i32>>, should_mutate: bool) -> NodeContext {
         NodeContext::new(
@@ -275,7 +276,7 @@ mod tests {
         let node = graph.add_node(create_test_node(call_count.clone(), should_mutate));
 
         // Create real components for ExecutionContext
-        let mut event_driver = EventDriver::new();
+        let mut event_driver = EventDriver::new(ExecutionMode::Spin);
         let scheduler = UnsafeCell::new(Scheduler::new());
         let mut deferred_spawns = VecDeque::new();
 

@@ -169,13 +169,13 @@ impl<T> Channel<T> {
 mod tests {
     use crate::Control;
     use crate::channel::{Receiver, TryReceiveError, TrySendError};
-    use crate::prelude::{Executor, TestClock};
+    use crate::prelude::{ExecutionMode, Executor, TestClock};
     use crate::runtime::NodeBuilder;
     use std::time::Duration;
 
     #[test]
     fn test_channel() {
-        let mut executor = Executor::new();
+        let mut executor = Executor::new(ExecutionMode::Spin);
         let mut clock = TestClock::new();
 
         let (node, tx) = NodeBuilder::new("25".to_string())
@@ -194,7 +194,7 @@ mod tests {
 
     #[test]
     fn test_channel_force_send() {
-        let mut executor = Executor::new();
+        let mut executor = Executor::new(ExecutionMode::Spin);
         let mut clock = TestClock::new();
 
         let (node, tx) = NodeBuilder::new("25".to_string())
@@ -214,7 +214,7 @@ mod tests {
 
     #[test]
     fn test_channel_blocking_send() {
-        let mut executor = Executor::new();
+        let mut executor = Executor::new(ExecutionMode::Spin);
         let mut clock = TestClock::new();
 
         let (node, tx) = NodeBuilder::new("25".to_string())
@@ -237,7 +237,7 @@ mod tests {
         use std::sync::atomic::{AtomicUsize, Ordering};
         use std::thread;
 
-        let mut executor = Executor::new();
+        let mut executor = Executor::new(ExecutionMode::Spin);
         let mut clock = TestClock::new();
 
         let received_count = Arc::new(AtomicUsize::new(0));
@@ -287,7 +287,7 @@ mod tests {
 
     #[test]
     fn test_sender_drop_detection() {
-        let mut executor = Executor::new();
+        let mut executor = Executor::new(ExecutionMode::Spin);
         let mut clock = TestClock::new();
 
         let (node, tx) = NodeBuilder::new(0usize)
@@ -324,7 +324,7 @@ mod tests {
         use std::sync::atomic::{AtomicBool, Ordering};
         use std::thread;
 
-        let mut executor = Executor::new();
+        let mut executor = Executor::new(ExecutionMode::Spin);
         let mut clock = TestClock::new();
 
         let running = Arc::new(AtomicBool::new(true));
@@ -369,7 +369,7 @@ mod tests {
 
     #[test]
     fn test_channel_close_with_pending_messages() {
-        let mut executor = Executor::new();
+        let mut executor = Executor::new(ExecutionMode::Spin);
         let mut clock = TestClock::new();
 
         let (node, tx) = NodeBuilder::new(Vec::<i32>::new())
@@ -400,7 +400,7 @@ mod tests {
         use std::sync::Arc;
         use std::thread;
 
-        let mut executor = Executor::new();
+        let mut executor = Executor::new(ExecutionMode::Spin);
         let clock = TestClock::new();
 
         let (node, tx) = NodeBuilder::new(Vec::<i32>::new())
@@ -449,7 +449,7 @@ mod tests {
     fn test_sender_clone_count() {
         use std::thread;
 
-        let mut executor = Executor::new();
+        let mut executor = Executor::new(ExecutionMode::Spin);
         let mut clock = TestClock::new();
 
         let (node, tx) = NodeBuilder::new(false)
@@ -491,7 +491,7 @@ mod tests {
 
     #[test]
     fn test_channel_not_zero_index() {
-        let mut executor = Executor::new();
+        let mut executor = Executor::new(ExecutionMode::Spin);
         let mut clock = TestClock::new();
 
         // spawn background node
@@ -521,7 +521,7 @@ mod tests {
         use std::thread;
         use std::time::{Duration, Instant};
 
-        let mut executor = Executor::new();
+        let mut executor = Executor::new(ExecutionMode::Spin);
         let mut clock = TestClock::new();
 
         // The key metric: how many times the node wakes up to find nothing
