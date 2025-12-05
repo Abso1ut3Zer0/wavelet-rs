@@ -164,6 +164,9 @@ pub mod graph;
 pub mod node;
 mod scheduler;
 
+#[cfg(feature = "signals")]
+use std::sync::{Arc, atomic::AtomicBool};
+
 pub use clock::*;
 use enum_as_inner::EnumAsInner;
 pub use event_driver::*;
@@ -210,6 +213,10 @@ pub struct Runtime<C: Clock> {
 
     /// Execution strategy for the main loop
     mode: ExecutionMode,
+
+    /// Shutdown flag
+    #[cfg(feature = "signals")]
+    shutdown: Arc<AtomicBool>,
 }
 
 impl<C: Clock> Runtime<C> {
@@ -225,6 +232,8 @@ impl Runtime<TestClock> {
             executor: Executor::new(ExecutionMode::Spin),
             clock: TestClock::new(),
             mode: ExecutionMode::Spin,
+            #[cfg(feature = "signals")]
+            shutdown: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -245,6 +254,8 @@ impl Runtime<HistoricalClock> {
             executor: Executor::new(ExecutionMode::Spin),
             clock: HistoricalClock::new(interval),
             mode: ExecutionMode::Spin,
+            #[cfg(feature = "signals")]
+            shutdown: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -268,6 +279,8 @@ impl Runtime<PrecisionClock> {
             executor: Executor::new(mode),
             clock: PrecisionClock::new(),
             mode,
+            #[cfg(feature = "signals")]
+            shutdown: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -276,9 +289,44 @@ impl Runtime<PrecisionClock> {
             executor: Executor::with_config(cfg, mode),
             clock: PrecisionClock::new(),
             mode,
+            #[cfg(feature = "signals")]
+            shutdown: Arc::new(AtomicBool::new(false)),
         }
     }
 
+    #[cfg(feature = "signals")]
+    pub fn enable_graceful_shutdown(&self) -> std::io::Result<()> {
+        #[cfg(unix)]
+        {
+            use signal_hook::consts::{SIGINT, SIGTERM};
+            use signal_hook::flag;
+            flag::register(SIGINT, self.shutdown.clone())?;
+            flag::register(SIGTERM, self.shutdown.clone())?;
+        }
+
+        Ok(())
+    }
+
+    #[cfg(feature = "signals")]
+    pub fn run_forever(&mut self) {
+        use std::sync::atomic::Ordering;
+        while !self.shutdown.load(Ordering::Relaxed)
+            && let ExecutorState::Running = self
+                .executor
+                .cycle(
+                    &mut self.clock,
+                    match self.mode {
+                        ExecutionMode::Park => None,
+                        ExecutionMode::Spin => Some(std::time::Duration::ZERO),
+                    },
+                )
+                .unwrap_or(ExecutorState::Running)
+        {
+            // continue
+        }
+    }
+
+    #[cfg(not(feature = "signals"))]
     pub fn run_forever(&mut self) {
         while let ExecutorState::Running = self
             .executor

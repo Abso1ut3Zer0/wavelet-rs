@@ -53,6 +53,8 @@ fn run_wavelet() {
         .build()
         .unwrap();
     let mut runtime = RealtimeRuntime::with_config(cfg, ExecutionMode::Spin);
+    runtime.enable_graceful_shutdown().unwrap();
+
     let (order_book, inbound) = NodeBuilder::new(OrderBook::new())
         .build_with_channel(runtime.executor(), 1, |this, _, rx| {
             if let Ok(book) = rx.try_receive() {
