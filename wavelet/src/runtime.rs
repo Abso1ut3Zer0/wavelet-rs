@@ -304,6 +304,14 @@ impl Runtime<PrecisionClock> {
             flag::register(SIGTERM, self.shutdown.clone())?;
         }
 
+        #[cfg(not(unix))]
+        {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Unsupported,
+                "signal handling is only supported on unix platforms",
+            ));
+        }
+
         Ok(())
     }
 
